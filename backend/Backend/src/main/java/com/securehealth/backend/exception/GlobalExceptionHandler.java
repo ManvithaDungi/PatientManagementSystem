@@ -144,6 +144,14 @@ public class GlobalExceptionHandler {
             return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
         }
 
+        if (message.contains("403")) {
+            ErrorResponse error = new ErrorResponse(
+                    HttpStatus.FORBIDDEN.value(),
+                    "Forbidden",
+                    message);
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(error);
+        }
+
         ErrorResponse error = new ErrorResponse(
                 HttpStatus.BAD_REQUEST.value(),
                 "Bad Request",

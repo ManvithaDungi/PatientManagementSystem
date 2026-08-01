@@ -5,6 +5,7 @@ import com.securehealth.backend.service.DoctorService;
 import com.securehealth.backend.service.PatientService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.web.bind.annotation.*;
@@ -41,6 +42,14 @@ public class DoctorController {
                 .orElse("UNKNOWN");
     }
 
+    // Mirrors the @PreAuthorize check above each endpoint - see PatientController for why both exist.
+    private boolean hasAnyAuthority(Authentication auth, String... allowed) {
+        List<String> allowedList = List.of(allowed);
+        return auth.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .anyMatch(allowedList::contains);
+    }
+
     @GetMapping
     public ResponseEntity<List<DoctorDTO>> getAllDoctors() {
         return ResponseEntity.ok(doctorService.getAllDoctors());
@@ -62,27 +71,33 @@ public class DoctorController {
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<DoctorDTO> updateDoctorProfile(
-            @PathVariable Long id, 
-            @RequestBody DoctorDTO doctorDTO, 
+    @PreAuthorize("hasAnyAuthority('DOCTOR', 'ADMIN')")
+    public ResponseEntity<?> updateDoctorProfile(
+            @PathVariable Long id,
+            @RequestBody DoctorDTO doctorDTO,
             Authentication auth) {
-        
+        if (!hasAnyAuthority(auth, "DOCTOR", "ADMIN")) {
+            return ResponseEntity.status(403).body("Forbidden: Only doctors and admins can update doctor profiles.");
+        }
         return ResponseEntity.ok(doctorService.updateDoctorProfile(
-                id, 
-                doctorDTO, 
-                getCurrentEmail(auth), 
+                id,
+                doctorDTO,
+                getCurrentEmail(auth),
                 getCurrentRole(auth)
         ));
     }
 
     @GetMapping("/{doctorId}/patients")
-    public ResponseEntity<List<com.securehealth.backend.dto.PatientDTO>> getPatientsByDoctor(
-            @PathVariable Long doctorId, 
+    @PreAuthorize("hasAnyAuthority('DOCTOR', 'ADMIN')")
+    public ResponseEntity<?> getPatientsByDoctor(
+            @PathVariable Long doctorId,
             Authentication auth) {
-        
+        if (!hasAnyAuthority(auth, "DOCTOR", "ADMIN")) {
+            return ResponseEntity.status(403).body("Forbidden: Only doctors and admins can view a doctor's patient list.");
+        }
         return ResponseEntity.ok(patientService.getPatientsByDoctor(
-                doctorId, 
-                getCurrentEmail(auth), 
+                doctorId,
+                getCurrentEmail(auth),
                 getCurrentRole(auth)
         ));
     }

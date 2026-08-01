@@ -31,13 +31,13 @@ public class VitalSignController {
 
     @GetMapping("/patient/{patientId}")
     public ResponseEntity<?> getByPatient(@PathVariable Long patientId, Authentication auth) {
-        accessValidator.validateAccess(patientId, auth);
+        accessValidator.validateAccess(patientId, auth, "VITAL_SIGNS");
         return ResponseEntity.ok(vitalSignService.getVitalSignsByPatient(patientId));
     }
 
     @GetMapping("/patient/{patientId}/latest")
     public ResponseEntity<?> getLatestByPatient(@PathVariable Long patientId, Authentication auth) {
-        accessValidator.validateAccess(patientId, auth);
+        accessValidator.validateAccess(patientId, auth, "VITAL_SIGNS");
         try {
             return ResponseEntity.ok(vitalSignService.getLatestVitalSignByPatient(patientId));
         } catch (RuntimeException e) {

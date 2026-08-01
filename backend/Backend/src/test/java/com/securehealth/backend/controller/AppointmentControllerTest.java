@@ -6,8 +6,11 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import java.util.List;
 import com.securehealth.backend.model.Appointment;
+import com.securehealth.backend.model.Login;
+import com.securehealth.backend.model.PatientProfile;
 import com.securehealth.backend.repository.AppointmentRepository;
 import com.securehealth.backend.repository.AuditLogRepository;
+import com.securehealth.backend.repository.LoginRepository;
 import com.securehealth.backend.security.PatientAccessValidator;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,6 +38,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -63,6 +67,9 @@ public class AppointmentControllerTest {
 
     @MockBean
     private AppointmentService appointmentService;
+
+    @MockBean
+    private LoginRepository loginRepository;
 
     // --- SECURITY DEPENDENCIES (Needed to satisfy the ApplicationContext) ---
     @MockBean
@@ -152,5 +159,113 @@ public class AppointmentControllerTest {
                 .content("Not in network"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value(AppointmentStatus.REJECTED.toString()));
+    }
+
+    private Appointment appointmentFor(Long profileId) {
+        Login patientLogin = new Login();
+        patientLogin.setEmail("patient@mail.com");
+        PatientProfile patient = new PatientProfile();
+        patient.setProfileId(profileId);
+        patient.setUser(patientLogin);
+
+        Appointment appt = new Appointment();
+        appt.setAppointmentId(10L);
+        appt.setPatient(patient);
+        appt.setStatus(AppointmentStatus.SCHEDULED);
+        return appt;
+    }
+
+    @Test
+    void getById_NotFound_Returns404() throws Exception {
+        when(appointmentRepository.findById(99L)).thenReturn(java.util.Optional.empty());
+
+        UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
+                "doctor@mail.com", null, List.of(new SimpleGrantedAuthority("DOCTOR")));
+
+        mockMvc.perform(get("/api/appointments/99").principal(auth))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void getById_AsOwningPatient_Returns200() throws Exception {
+        when(appointmentRepository.findById(10L)).thenReturn(java.util.Optional.of(appointmentFor(1L)));
+
+        UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
+                "patient@mail.com", null, List.of(new SimpleGrantedAuthority("PATIENT")));
+
+        mockMvc.perform(get("/api/appointments/10").principal(auth))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void getById_AsOtherPatient_Returns403() throws Exception {
+        when(appointmentRepository.findById(10L)).thenReturn(java.util.Optional.of(appointmentFor(1L)));
+
+        UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
+                "stranger@mail.com", null, List.of(new SimpleGrantedAuthority("PATIENT")));
+
+        doThrow(new RuntimeException("403 Forbidden: You cannot access another patient's records"))
+                .when(accessValidator).validateAccess(1L, auth);
+
+        mockMvc.perform(get("/api/appointments/10").principal(auth))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void getByDoctor_AsOwningDoctor_Returns200() throws Exception {
+        Login doctorLogin = new Login();
+        doctorLogin.setUserId(2L);
+        doctorLogin.setEmail("dr.house@mail.com");
+        when(loginRepository.findById(2L)).thenReturn(java.util.Optional.of(doctorLogin));
+        when(appointmentService.getAppointmentsByDoctor(2L)).thenReturn(List.of());
+
+        UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
+                "dr.house@mail.com", null, List.of(new SimpleGrantedAuthority("DOCTOR")));
+
+        mockMvc.perform(get("/api/appointments/doctor/2").principal(auth))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void getByDoctor_AsDifferentDoctor_Returns403() throws Exception {
+        Login doctorLogin = new Login();
+        doctorLogin.setUserId(2L);
+        doctorLogin.setEmail("dr.house@mail.com");
+        when(loginRepository.findById(2L)).thenReturn(java.util.Optional.of(doctorLogin));
+
+        UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
+                "dr.strange@mail.com", null, List.of(new SimpleGrantedAuthority("DOCTOR")));
+
+        mockMvc.perform(get("/api/appointments/doctor/2").principal(auth))
+                .andExpect(status().isForbidden());
+
+        verify(appointmentService, never()).getAppointmentsByDoctor(anyLong());
+    }
+
+    @Test
+    void getByDoctor_AsPatient_Returns403() throws Exception {
+        UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
+                "patient@mail.com", null, List.of(new SimpleGrantedAuthority("PATIENT")));
+
+        mockMvc.perform(get("/api/appointments/doctor/2").principal(auth))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void getStats_AsPatient_Returns403() throws Exception {
+        UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
+                "patient@mail.com", null, List.of(new SimpleGrantedAuthority("PATIENT")));
+
+        mockMvc.perform(get("/api/appointments/stats").principal(auth))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void getStats_AsAdmin_Returns200() throws Exception {
+        UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
+                "admin@mail.com", null, List.of(new SimpleGrantedAuthority("ADMIN")));
+
+        mockMvc.perform(get("/api/appointments/stats").principal(auth))
+                .andExpect(status().isOk());
     }
 }

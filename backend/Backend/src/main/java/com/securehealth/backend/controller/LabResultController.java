@@ -37,15 +37,22 @@ public class LabResultController {
 
     @GetMapping("/patient/{patientId}")
     public ResponseEntity<List<LabTestDTO>> getByPatient(@PathVariable Long patientId, Authentication auth) {
-        accessValidator.validateAccess(patientId, auth);
+        accessValidator.validateAccess(patientId, auth, "LAB_RESULTS");
         return ResponseEntity.ok(labTestService.getLabTestsByPatient(patientId));
     }
 
     @GetMapping("/{id}")
     public ResponseEntity<?> getById(@PathVariable Long id, Authentication auth) {
-        return labTestRepository.findById(id)
-                .map(test -> ResponseEntity.ok((Object) test))
-                .orElse(ResponseEntity.status(404).body("Lab result not found with id: " + id));
+        LabTest test = labTestRepository.findById(id).orElse(null);
+        if (test == null) {
+            return ResponseEntity.status(404).body("Lab result not found with id: " + id);
+        }
+        try {
+            accessValidator.validateAccess(test.getPatient().getProfileId(), auth, "LAB_RESULTS");
+        } catch (RuntimeException e) {
+            return ResponseEntity.status(403).body(e.getMessage());
+        }
+        return ResponseEntity.ok((Object) test);
     }
 
     

@@ -31,15 +31,22 @@ public class PrescriptionController {
 
     @GetMapping("/patient/{patientId}")
     public ResponseEntity<List<PrescriptionDTO>> getByPatient(@PathVariable Long patientId, Authentication auth) {
-        accessValidator.validateAccess(patientId, auth);
+        accessValidator.validateAccess(patientId, auth, "PRESCRIPTIONS");
         return ResponseEntity.ok(prescriptionService.getPrescriptionsByPatient(patientId));
     }
 
     @GetMapping("/{id}")
     public ResponseEntity<?> getById(@PathVariable Long id, Authentication auth) {
-        return prescriptionRepository.findById(id)
-                .map(rx -> ResponseEntity.ok((Object) rx))
-                .orElse(ResponseEntity.status(404).body("Prescription not found with id: " + id));
+        Prescription rx = prescriptionRepository.findById(id).orElse(null);
+        if (rx == null) {
+            return ResponseEntity.status(404).body("Prescription not found with id: " + id);
+        }
+        try {
+            accessValidator.validateAccess(rx.getPatient().getProfileId(), auth, "PRESCRIPTIONS");
+        } catch (RuntimeException e) {
+            return ResponseEntity.status(403).body(e.getMessage());
+        }
+        return ResponseEntity.ok((Object) rx);
     }
 
     @PostMapping
@@ -55,7 +62,7 @@ public class PrescriptionController {
 
     @GetMapping("/patient/{patientId}/active")
     public ResponseEntity<List<PrescriptionDTO>> getActiveByPatient(@PathVariable Long patientId, Authentication auth) {
-        accessValidator.validateAccess(patientId, auth);
+        accessValidator.validateAccess(patientId, auth, "PRESCRIPTIONS");
         return ResponseEntity.ok(prescriptionService.getActivePrescriptionsByPatient(patientId));
     }
 

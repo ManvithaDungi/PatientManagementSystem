@@ -1,11 +1,13 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext.jsx';
+import ProtectedRoute from './components/auth/ProtectedRoute.jsx';
 
 import Login from './pages/login.jsx';
 import CreateAccount from './pages/createAccount.jsx';
 import TwoFactorAuth from './pages/TwoFactorAuth.jsx';
 import ForgotPassword from './pages/ForgotPassword.jsx';
 import ResetPassword from './pages/ResetPassword.jsx';
+import Unauthorized from './pages/Unauthorized.jsx';
 
 import DashboardLayout from './layouts/DashboardLayout.jsx';
 import DoctorDashboard from './pages/doctor/Dashboard.jsx';
@@ -48,32 +50,6 @@ import AdminProfile from './pages/admin/Profile.jsx';
 function App() {
   const { user } = useAuth();
   const displayName = user?.fullName || user?.full_name || user?.email || 'User';
-  const roleMap = {
-    PATIENT: 'patient',
-    DOCTOR: 'doctor',
-    NURSE: 'nurse',
-    ADMIN: 'admin',
-    LAB_TECHNICIAN: 'lab',
-  };
-
-  const RoleGuard = ({ expectedRole, children }) => {
-    // Normalize logic: Get uppercase role from user -> Lookup in map -> Get route-friendly role
-    // e.g. "LAB_TECHNICIAN" -> "lab"
-    // e.g. "DOCTOR" -> "doctor"
-    const userRoleKey = (user?.role || '').toUpperCase();
-    const normalizedUserRole = roleMap[userRoleKey] || 'patient';
-
-    if (!user) {
-      return <Navigate to="/login" replace />;
-    }
-
-    // Compare normalized role with expected route role
-    if (normalizedUserRole !== expectedRole) {
-      // Redirect to the correct dashboard for their role
-      return <Navigate to={`/dashboard/${normalizedUserRole}`} replace />;
-    }
-    return children;
-  };
 
   return (
     <Routes>
@@ -83,12 +59,13 @@ function App() {
       <Route path="/verify-2fa" element={<TwoFactorAuth />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/reset-password" element={<ResetPassword />} />
+      <Route path="/unauthorized" element={<Unauthorized />} />
 
       {/* Doctor Dashboard */}
       <Route path="/dashboard/doctor/*" element={
-        <RoleGuard expectedRole="doctor">
+        <ProtectedRoute allowedRoles={['DOCTOR']}>
           <DashboardLayout role="doctor" userName={displayName} />
-        </RoleGuard>
+        </ProtectedRoute>
       }>
 
         <Route path="" element={<DoctorDashboard />} />
@@ -104,9 +81,9 @@ function App() {
 
       {/* Patient Dashboard */}
       <Route path="/dashboard/patient/*" element={
-        <RoleGuard expectedRole="patient">
+        <ProtectedRoute allowedRoles={['PATIENT']}>
           <DashboardLayout role="patient" userName={displayName} />
-        </RoleGuard>
+        </ProtectedRoute>
       }>
         <Route path="" element={<PatientDashboard />} />
         <Route path="appointments" element={<PatientAppointments />} />
@@ -120,9 +97,9 @@ function App() {
 
       {/* Nurse Dashboard */}
       <Route path="/dashboard/nurse/*" element={
-        <RoleGuard expectedRole="nurse">
+        <ProtectedRoute allowedRoles={['NURSE']}>
           <DashboardLayout role="nurse" userName={displayName} />
-        </RoleGuard>
+        </ProtectedRoute>
       }>
         <Route path="" element={<NurseDashboard />} />
         <Route path="patients" element={<NursePatients />} />
@@ -137,9 +114,9 @@ function App() {
 
       {/* Lab Dashboard */}
       <Route path="/dashboard/lab/*" element={
-        <RoleGuard expectedRole="lab">
+        <ProtectedRoute allowedRoles={['LAB_TECHNICIAN']}>
           <DashboardLayout role="lab" userName={displayName} />
-        </RoleGuard>
+        </ProtectedRoute>
       }>
         <Route path="" element={<LabDashboard />} />
         <Route path="orders" element={<LabOrders />} />
@@ -151,9 +128,9 @@ function App() {
 
       {/* Admin Dashboard */}
       <Route path="/dashboard/admin/*" element={
-        <RoleGuard expectedRole="admin">
+        <ProtectedRoute allowedRoles={['ADMIN']}>
           <DashboardLayout role="admin" userName={displayName} />
-        </RoleGuard>
+        </ProtectedRoute>
       }>
         <Route path="" element={<AdminDashboard />} />
         <Route path="profile" element={<AdminProfile />} />

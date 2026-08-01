@@ -35,6 +35,9 @@ public class PatientService {
     @Autowired
     private AppointmentRepository appointmentRepository;
 
+    @Autowired
+    private ConsentService consentService;
+
     /**
      * GET /patients
      * Only Doctors and Admins should be able to pull a full list of patients.
@@ -82,8 +85,23 @@ public class PatientService {
         PatientProfile profile = patientProfileRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("404: Patient not found"));
 
-        // Admin and Doctor access check (In a strict system, you'd check if this specific doctor is assigned to this patient)
-        if (requesterRole.equals("ADMIN") || requesterRole.equals("DOCTOR")) {
+        // Admins have full oversight access.
+        if (requesterRole.equals("ADMIN")) {
+            return mapToDTO(profile);
+        }
+
+        // A doctor with a direct care relationship (assigned to this patient) needs no separate consent.
+        // Any other doctor must have been granted explicit patient consent.
+        if (requesterRole.equals("DOCTOR")) {
+            boolean isAssignedDoctor = profile.getAssignedDoctor() != null
+                    && profile.getAssignedDoctor().getEmail().equals(requesterEmail);
+            if (!isAssignedDoctor) {
+                Login doctor = loginRepository.findByEmail(requesterEmail)
+                        .orElseThrow(() -> new RuntimeException("404: Doctor not found"));
+                if (!consentService.hasConsent(profile.getProfileId(), doctor.getUserId(), "ALL")) {
+                    throw new RuntimeException("403 Forbidden: No active patient consent on file");
+                }
+            }
             return mapToDTO(profile);
         }
 

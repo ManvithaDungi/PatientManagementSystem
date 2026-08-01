@@ -4,6 +4,7 @@
 -- =================================================================================
 
 -- 1. CLEANUP
+DROP TABLE IF EXISTS uploaded_files CASCADE;
 DROP TABLE IF EXISTS consent_log CASCADE;
 DROP TABLE IF EXISTS doctor_working_days CASCADE;
 DROP TABLE IF EXISTS patient_consents CASCADE;
@@ -245,6 +246,15 @@ CREATE TABLE nurse_tasks (
     completed BOOLEAN DEFAULT FALSE,
     status VARCHAR(50) DEFAULT 'upcoming',
     previous_status VARCHAR(50)
+);
+
+-- Ownership record for encrypted uploads in FileStorageService; the only way
+-- to authorize a download before the file is linked to a medical record/lab test.
+CREATE TABLE uploaded_files (
+    id BIGSERIAL PRIMARY KEY,
+    filename VARCHAR(255) UNIQUE NOT NULL,
+    uploaded_by_id BIGINT NOT NULL REFERENCES login(user_id) ON DELETE CASCADE,
+    uploaded_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Legacy compatibility table still used by older code paths/scripts.

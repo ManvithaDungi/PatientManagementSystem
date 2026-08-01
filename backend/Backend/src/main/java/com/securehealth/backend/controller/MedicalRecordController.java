@@ -31,15 +31,22 @@ public class MedicalRecordController {
 
     @GetMapping("/patient/{patientId}")
     public ResponseEntity<List<MedicalRecordDTO>> getByPatient(@PathVariable Long patientId, Authentication auth) {
-        accessValidator.validateAccess(patientId, auth);
+        accessValidator.validateAccess(patientId, auth, "MEDICAL_RECORDS");
         return ResponseEntity.ok(medicalRecordService.getMedicalRecordsByPatient(patientId));
     }
 
     @GetMapping("/{id}")
     public ResponseEntity<?> getById(@PathVariable Long id, Authentication auth) {
-        return medicalRecordRepository.findById(id)
-                .map(record -> ResponseEntity.ok((Object) record))
-                .orElse(ResponseEntity.status(404).body("Medical record not found with id: " + id));
+        MedicalRecord record = medicalRecordRepository.findById(id).orElse(null);
+        if (record == null) {
+            return ResponseEntity.status(404).body("Medical record not found with id: " + id);
+        }
+        try {
+            accessValidator.validateAccess(record.getPatient().getProfileId(), auth, "MEDICAL_RECORDS");
+        } catch (RuntimeException e) {
+            return ResponseEntity.status(403).body(e.getMessage());
+        }
+        return ResponseEntity.ok((Object) record);
     }
 
     @PostMapping

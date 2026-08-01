@@ -5,9 +5,9 @@ import com.securehealth.backend.service.PatientService;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
-import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.web.bind.annotation.*;
@@ -41,32 +41,62 @@ public class PatientController {
                 .orElse("UNKNOWN");
     }
 
+    // Mirrors the @PreAuthorize check above each endpoint. @PreAuthorize relies on method-security
+    // AOP being wired (it is, in the real app via SecurityConfig), but that wiring isn't present in
+    // sliced controller unit tests, so this explicit check keeps behavior verifiable and defense-in-depth.
+    private boolean hasAnyAuthority(Authentication auth, String... allowed) {
+        List<String> allowedList = List.of(allowed);
+        return auth.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .anyMatch(allowedList::contains);
+    }
+
     @GetMapping
-    public ResponseEntity<Page<PatientDTO>> getAllPatients(
+    @PreAuthorize("hasAnyAuthority('DOCTOR', 'ADMIN')")
+    public ResponseEntity<?> getAllPatients(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size,
             Authentication auth) {
+        if (!hasAnyAuthority(auth, "DOCTOR", "ADMIN")) {
+            return ResponseEntity.status(403).body("Forbidden: Only doctors and admins can list patients.");
+        }
         Pageable pageable = PageRequest.of(page, size);
         return ResponseEntity.ok(patientService.getAllPatients(getCurrentRole(auth), pageable));
     }
 
     @GetMapping("/me")
-    public ResponseEntity<PatientDTO> getMyProfile(Authentication auth) {
+    @PreAuthorize("hasAuthority('PATIENT')")
+    public ResponseEntity<?> getMyProfile(Authentication auth) {
+        if (!hasAnyAuthority(auth, "PATIENT")) {
+            return ResponseEntity.status(403).body("Forbidden: Only patients have a self profile.");
+        }
         return ResponseEntity.ok(patientService.getPatientByEmail(getCurrentEmail(auth)));
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<PatientDTO> getPatientById(@PathVariable Long id, Authentication auth) {
+    @PreAuthorize("hasAnyAuthority('DOCTOR', 'ADMIN', 'PATIENT')")
+    public ResponseEntity<?> getPatientById(@PathVariable Long id, Authentication auth) {
+        if (!hasAnyAuthority(auth, "DOCTOR", "ADMIN", "PATIENT")) {
+            return ResponseEntity.status(403).body("Forbidden: You do not have access to patient records.");
+        }
         return ResponseEntity.ok(patientService.getPatientById(id, getCurrentEmail(auth), getCurrentRole(auth)));
     }
 
     @PostMapping
-    public ResponseEntity<PatientDTO> createPatient(@Valid @RequestBody PatientDTO patientDTO, Authentication auth) {
+    @PreAuthorize("hasAuthority('PATIENT')")
+    public ResponseEntity<?> createPatient(@Valid @RequestBody PatientDTO patientDTO, Authentication auth) {
+        if (!hasAnyAuthority(auth, "PATIENT")) {
+            return ResponseEntity.status(403).body("Forbidden: Only patients can create their own profile.");
+        }
         return ResponseEntity.ok(patientService.createPatientProfile(patientDTO, getCurrentEmail(auth)));
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<PatientDTO> updatePatient(@PathVariable Long id, @Valid @RequestBody PatientDTO patientDTO, Authentication auth) {
+    @PreAuthorize("hasAnyAuthority('ADMIN', 'PATIENT')")
+    public ResponseEntity<?> updatePatient(@PathVariable Long id, @Valid @RequestBody PatientDTO patientDTO, Authentication auth) {
+        if (!hasAnyAuthority(auth, "ADMIN", "PATIENT")) {
+            return ResponseEntity.status(403).body("Forbidden: Only admins or the owning patient can update this profile.");
+        }
         return ResponseEntity.ok(patientService.updatePatientProfile(id, patientDTO, getCurrentEmail(auth), getCurrentRole(auth)));
     }
 

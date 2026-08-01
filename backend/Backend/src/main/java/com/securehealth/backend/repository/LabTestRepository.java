@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Repository interface for {@link LabTest} entities.
@@ -37,4 +38,7 @@ public interface LabTestRepository extends JpaRepository<LabTest, Long> {
     List<LabTest> findByPatient_ProfileIdOrderByOrderedAtDesc(Long patientId);
 
     List<LabTest> findByPatient_ProfileId(Long patientId);
+
+    // Used to resolve a stored filename back to its owning patient for file-download authorization
+    Optional<LabTest> findByFileUrl(String fileUrl);
 }

@@ -1,5 +1,15 @@
 package com.securehealth.backend.service;
 
+import com.securehealth.backend.model.LabTest;
+import com.securehealth.backend.model.Login;
+import com.securehealth.backend.model.MedicalRecord;
+import com.securehealth.backend.model.UploadedFile;
+import com.securehealth.backend.repository.LabTestRepository;
+import com.securehealth.backend.repository.LoginRepository;
+import com.securehealth.backend.repository.MedicalRecordRepository;
+import com.securehealth.backend.repository.UploadedFileRepository;
+import com.securehealth.backend.security.PatientAccessValidator;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -15,6 +25,7 @@ import java.nio.file.Paths;
 import java.security.SecureRandom;
 import java.util.Base64;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -39,6 +50,12 @@ public class FileStorageService {
     @Value("${app.encryption.key}")
     private String encryptionKeyBase64;
 
+    @Autowired private UploadedFileRepository uploadedFileRepository;
+    @Autowired private MedicalRecordRepository medicalRecordRepository;
+    @Autowired private LabTestRepository labTestRepository;
+    @Autowired private LoginRepository loginRepository;
+    @Autowired private PatientAccessValidator patientAccessValidator;
+
     /**
      * Stores an uploaded file with AES-256-GCM encryption at rest.
      * <p>
@@ -47,11 +64,12 @@ public class FileStorageService {
      * </p>
      *
      * @param file the {@link MultipartFile} to store
+     * @param uploaderEmail the email of the authenticated user uploading the file
      * @return the unique filename generated for the stored file
      * @throws IOException if an I/O error occurs during storage
      * @throws RuntimeException if the file is empty or the type is not allowed
      */
-    public String storeFile(MultipartFile file) throws IOException {
+    public String storeFile(MultipartFile file, String uploaderEmail) throws IOException {
         // 1. Validate
         if (file.isEmpty()) {
             throw new RuntimeException("Cannot upload empty file.");
@@ -64,6 +82,9 @@ public class FileStorageService {
             throw new RuntimeException("File type not allowed: " + extension
                     + ". Allowed: " + String.join(", ", ALLOWED_EXTENSIONS));
         }
+
+        Login uploader = loginRepository.findByEmail(uploaderEmail)
+                .orElseThrow(() -> new RuntimeException("404: Uploader not found"));
 
         // 2. Generate unique filename
         String uniqueFilename = UUID.randomUUID() + "." + extension + ".enc";
@@ -83,23 +104,36 @@ public class FileStorageService {
             throw new RuntimeException("Failed to encrypt and store file: " + e.getMessage(), e);
         }
 
+        // 5. Record ownership - this is the only record of who owns the file until
+        // it's linked to a medical record or lab test.
+        UploadedFile record = new UploadedFile();
+        record.setFilename(uniqueFilename);
+        record.setUploadedBy(uploader);
+        uploadedFileRepository.save(record);
+
         return uniqueFilename;
     }
 
     /**
-     * Retrieves and decrypts a stored file based on its filename.
+     * Retrieves and decrypts a stored file based on its filename, after verifying
+     * the requester is authorized to see it (the uploader, the owning patient,
+     * a provider with consent for the linked record, or an admin).
      *
      * @param filename the unique name of the encrypted file
+     * @param requesterEmail the email of the authenticated requester
+     * @param requesterRole the role of the authenticated requester
      * @return the decrypted byte array of the file content
      * @throws IOException if an I/O error occurs during retrieval
-     * @throws RuntimeException if the file is not found or decryption fails
+     * @throws RuntimeException if the file is not found, access is forbidden, or decryption fails
      */
-    public byte[] loadFile(String filename) throws IOException {
+    public byte[] loadFile(String filename, String requesterEmail, String requesterRole) throws IOException {
         Path filePath = Paths.get(uploadDir).resolve(filename);
 
         if (!Files.exists(filePath)) {
-            throw new RuntimeException("File not found: " + filename);
+            throw new RuntimeException("404: File not found: " + filename);
         }
+
+        ensureAccess(filename, requesterEmail, requesterRole);
 
         try {
             byte[] encryptedBytes = Files.readAllBytes(filePath);
@@ -107,6 +141,40 @@ public class FileStorageService {
         } catch (Exception e) {
             throw new RuntimeException("Failed to decrypt file: " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * Authorizes access to a stored file. A requester may access a file if they
+     * uploaded it, are an admin, or the file is linked to a medical record/lab test
+     * they're entitled to see (patient owner, or provider with active consent).
+     * Denies access to files not yet linked to any record unless the requester is
+     * the uploader or an admin.
+     */
+    private void ensureAccess(String filename, String requesterEmail, String requesterRole) {
+        if ("ADMIN".equals(requesterRole)) {
+            return;
+        }
+
+        Optional<UploadedFile> uploadRecord = uploadedFileRepository.findByFilename(filename);
+        if (uploadRecord.isPresent() && uploadRecord.get().getUploadedBy().getEmail().equals(requesterEmail)) {
+            return;
+        }
+
+        Optional<MedicalRecord> medicalRecord = medicalRecordRepository.findByAttachmentUrl(filename);
+        if (medicalRecord.isPresent()) {
+            patientAccessValidator.validateAccess(
+                    medicalRecord.get().getPatient().getProfileId(), requesterRole, requesterEmail, "MEDICAL_RECORDS");
+            return;
+        }
+
+        Optional<LabTest> labTest = labTestRepository.findByFileUrl(filename);
+        if (labTest.isPresent()) {
+            patientAccessValidator.validateAccess(
+                    labTest.get().getPatient().getProfileId(), requesterRole, requesterEmail, "LAB_RESULTS");
+            return;
+        }
+
+        throw new RuntimeException("403 Forbidden: You are not authorized to access this file");
     }
 
     /**

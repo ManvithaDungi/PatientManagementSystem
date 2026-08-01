@@ -21,6 +21,7 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -29,6 +30,7 @@ public class PatientServiceTest {
     @Mock private LoginRepository loginRepository;
     @Mock private PatientProfileRepository patientProfileRepository;
     @Mock private AppointmentRepository appointmentRepository;
+    @Mock private ConsentService consentService;
 
     @InjectMocks private PatientService patientService;
 
@@ -88,9 +90,62 @@ public class PatientServiceTest {
         when(loginRepository.findById(2L)).thenReturn(Optional.of(doctorLogin));
 
         // Act & Assert - Requesting as a different doctor
-        RuntimeException exception = assertThrows(RuntimeException.class, 
+        RuntimeException exception = assertThrows(RuntimeException.class,
             () -> patientService.getPatientsByDoctor(2L, "dr.strange@mail.com", "DOCTOR"));
-        
+
         assertTrue(exception.getMessage().contains("403 Forbidden"));
+    }
+
+    @Test
+    void getPatientById_AsAssignedDoctor_SkipsConsentCheck() {
+        patientProfile.setAssignedDoctor(doctorLogin);
+        when(patientProfileRepository.findById(1L)).thenReturn(Optional.of(patientProfile));
+
+        PatientDTO result = patientService.getPatientById(1L, "dr.house@mail.com", "DOCTOR");
+
+        assertEquals("John", result.getFirstName());
+        verifyNoInteractions(consentService);
+    }
+
+    @Test
+    void getPatientById_AsNonAssignedDoctorWithConsent_ReturnsProfile() {
+        when(patientProfileRepository.findById(1L)).thenReturn(Optional.of(patientProfile));
+        when(loginRepository.findByEmail("dr.strange@mail.com")).thenReturn(Optional.of(
+                loginWith(9L, "dr.strange@mail.com")));
+        when(consentService.hasConsent(1L, 9L, "ALL")).thenReturn(true);
+
+        PatientDTO result = patientService.getPatientById(1L, "dr.strange@mail.com", "DOCTOR");
+
+        assertEquals("John", result.getFirstName());
+    }
+
+    @Test
+    void getPatientById_AsNonAssignedDoctorWithoutConsent_Throws403() {
+        when(patientProfileRepository.findById(1L)).thenReturn(Optional.of(patientProfile));
+        when(loginRepository.findByEmail("dr.strange@mail.com")).thenReturn(Optional.of(
+                loginWith(9L, "dr.strange@mail.com")));
+        when(consentService.hasConsent(1L, 9L, "ALL")).thenReturn(false);
+
+        RuntimeException exception = assertThrows(RuntimeException.class,
+                () -> patientService.getPatientById(1L, "dr.strange@mail.com", "DOCTOR"));
+
+        assertTrue(exception.getMessage().contains("403 Forbidden"));
+    }
+
+    @Test
+    void getPatientById_AsAdmin_SkipsConsentCheck() {
+        when(patientProfileRepository.findById(1L)).thenReturn(Optional.of(patientProfile));
+
+        PatientDTO result = patientService.getPatientById(1L, "admin@mail.com", "ADMIN");
+
+        assertEquals("John", result.getFirstName());
+        verifyNoInteractions(consentService);
+    }
+
+    private Login loginWith(Long userId, String email) {
+        Login login = new Login();
+        login.setUserId(userId);
+        login.setEmail(email);
+        return login;
     }
 }

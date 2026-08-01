@@ -1,5 +1,6 @@
 package com.securehealth.backend.controller;
 
+import com.securehealth.backend.dto.DoctorDTO;
 import com.securehealth.backend.dto.PatientDTO;
 import com.securehealth.backend.service.DoctorService;
 import com.securehealth.backend.service.PatientService;
@@ -16,10 +17,12 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.util.Collections;
 import java.util.List;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -63,5 +66,46 @@ public class DoctorControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].id").value(1))
                 .andExpect(jsonPath("$[0].firstName").value("John"));
+    }
+
+    @Test
+    void getPatientsByDoctor_AsPatient_Returns403() throws Exception {
+        UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
+                "patient@mail.com", null, List.of(new SimpleGrantedAuthority("PATIENT")));
+
+        mockMvc.perform(get("/api/doctors/2/patients")
+                .principal(auth)
+                .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void updateDoctorProfile_AsDoctor_Returns200() throws Exception {
+        DoctorDTO updated = new DoctorDTO();
+        updated.setId(2L);
+        updated.setFirstName("Greg");
+        when(doctorService.updateDoctorProfile(anyLong(), any(), anyString(), anyString())).thenReturn(updated);
+
+        UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
+                "dr.house@mail.com", null, List.of(new SimpleGrantedAuthority("DOCTOR")));
+
+        mockMvc.perform(put("/api/doctors/2")
+                        .principal(auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.firstName").value("Greg"));
+    }
+
+    @Test
+    void updateDoctorProfile_AsNurse_Returns403() throws Exception {
+        UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
+                "nurse@mail.com", null, List.of(new SimpleGrantedAuthority("NURSE")));
+
+        mockMvc.perform(put("/api/doctors/2")
+                        .principal(auth)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isForbidden());
     }
 }

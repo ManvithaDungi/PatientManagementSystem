@@ -4,7 +4,9 @@ import com.securehealth.backend.dto.AppointmentDTO;
 import com.securehealth.backend.dto.AppointmentRequest;
 import com.securehealth.backend.model.Appointment;
 import com.securehealth.backend.model.AppointmentStatus;
+import com.securehealth.backend.model.Login;
 import com.securehealth.backend.repository.AppointmentRepository;
+import com.securehealth.backend.repository.LoginRepository;
 import com.securehealth.backend.security.PatientAccessValidator;
 import com.securehealth.backend.service.AppointmentService;
 
@@ -27,6 +29,7 @@ public class AppointmentController {
     @Autowired private AppointmentRepository appointmentRepository;
     @Autowired private PatientAccessValidator accessValidator;
     @Autowired private AppointmentService appointmentService;
+    @Autowired private LoginRepository loginRepository;
 
     @GetMapping("/patient/{patientId}")
     public ResponseEntity<List<AppointmentDTO>> getByPatient(@PathVariable Long patientId, Authentication auth) {
@@ -35,8 +38,17 @@ public class AppointmentController {
     }
 
     @GetMapping("/doctor/{doctorId}")
-    public ResponseEntity<List<AppointmentDTO>> getByDoctor(@PathVariable Long doctorId, Authentication auth) {
+    @PreAuthorize("hasAnyAuthority('ADMIN', 'DOCTOR')")
+    public ResponseEntity<?> getByDoctor(@PathVariable Long doctorId, Authentication auth) {
+        boolean isAdmin = auth.getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ADMIN"));
+        if (!isAdmin && !auth.getName().equals(doctorLoginEmail(doctorId))) {
+            return ResponseEntity.status(403).body("Forbidden: You can only view your own appointment schedule.");
+        }
         return ResponseEntity.ok(appointmentService.getAppointmentsByDoctor(doctorId));
+    }
+
+    private String doctorLoginEmail(Long doctorId) {
+        return loginRepository.findById(doctorId).map(Login::getEmail).orElse(null);
     }
 
     // GET /api/appointments/doctor/{doctorId}/available-slots?date=2026-03-01
@@ -117,9 +129,16 @@ public class AppointmentController {
 
     @GetMapping("/{id}")
     public ResponseEntity<?> getById(@PathVariable Long id, Authentication auth) {
-        return appointmentRepository.findById(id)
-                .map(appt -> ResponseEntity.ok((Object) appt))
-                .orElse(ResponseEntity.status(404).body("Appointment not found with id: " + id));
+        Appointment appt = appointmentRepository.findById(id).orElse(null);
+        if (appt == null) {
+            return ResponseEntity.status(404).body("Appointment not found with id: " + id);
+        }
+        try {
+            accessValidator.validateAccess(appt.getPatient().getProfileId(), auth);
+        } catch (RuntimeException e) {
+            return ResponseEntity.status(403).body(e.getMessage());
+        }
+        return ResponseEntity.ok((Object) appt);
     }
 
     @GetMapping("/status/{status}")
@@ -128,7 +147,13 @@ public class AppointmentController {
     }
 
     @GetMapping("/stats")
-    public ResponseEntity<?> getStats() {
+    @PreAuthorize("hasAnyAuthority('ADMIN', 'DOCTOR')")
+    public ResponseEntity<?> getStats(Authentication auth) {
+        boolean allowed = auth.getAuthorities().stream()
+                .anyMatch(a -> a.getAuthority().equals("ADMIN") || a.getAuthority().equals("DOCTOR"));
+        if (!allowed) {
+            return ResponseEntity.status(403).body("Forbidden: Only doctors and admins can view appointment stats.");
+        }
         java.util.Map<String, Object> stats = new java.util.HashMap<>();
         stats.put("total", appointmentRepository.count());
         stats.put("pending", appointmentRepository.countByStatus(AppointmentStatus.PENDING_APPROVAL));
