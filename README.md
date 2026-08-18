@@ -1,13 +1,13 @@
-# 🏥 SecureHealth - Patient Management System
+# SecureHealth - Patient Management System
 ## A HIPAA-Aware Healthcare Platform with Regulatory Compliance
 
-**Status:** ✅ Production-Ready (with noted improvements for scaling)  
+**Status:** Production-Ready (with noted improvements for scaling)  
 **Last Updated:** April 20, 2026  
 **Architecture:** React 19 + Spring Boot 3.2 + PostgreSQL + Docker
 
 ---
 
-# 📋 Table of Contents
+# Table of Contents
 1. [Overview](#overview)
 2. [Technology Stack](#technology-stack)
 3. [Key Features](#key-features)
@@ -24,7 +24,7 @@
 
 ---
 
-# 🎯 Overview
+# Overview
 
 **SecureHealth** is a comprehensive healthcare information management system that demonstrates enterprise-level security practices for handling sensitive medical data. The platform orchestrates complex workflows among multiple stakeholder roles while maintaining strict HIPAA-aligned access controls, audit trails, and data governance.
 
@@ -41,7 +41,7 @@
 
 ---
 
-# 🛠️ Technology Stack
+# Technology Stack
 
 ## Frontend
 - **Framework:** React 19.2.3 (Latest, with improved performance)
@@ -76,54 +76,54 @@
 
 ---
 
-# ✨ Key Features
+# Key Features
 
-## 🔐 Authentication & Security
-- ✅ Email/password registration with 12-character minimum
-- ✅ 2FA via email OTP for doctors and admins
-- ✅ JWT access tokens (15-minute expiry) + refresh tokens (7-day)
-- ✅ Account lockout after 5 failed attempts
-- ✅ Password history (can't reuse last 5 passwords)
-- ✅ Password reset with time-limited tokens
-- ✅ Session management (max 3 concurrent sessions per user)
-- ✅ Argon2 password hashing (GPU-resistant)
+## Authentication & Security
+- Email/password registration with 12-character minimum
+- 2FA via email OTP for doctors and admins
+- JWT access tokens (15-minute expiry) + refresh tokens (7-day)
+- Account lockout after 5 failed attempts
+- Password history (can't reuse last 5 passwords)
+- Password reset with time-limited tokens
+- Session management (max 3 concurrent sessions per user)
+- Argon2 password hashing (GPU-resistant)
 
-## 🏥 Clinical Workflows
-- ✅ **Appointment Scheduling:** Patients request appointments, doctors manage availability, admins approve
-- ✅ **Prescriptions:** Doctors create prescriptions (medication, dosage, frequency, duration)
-- ✅ **Vital Signs Recording:** Nurses enter BP, HR, temperature, O2 saturation, weight, height
-- ✅ **Medical Records:** Doctors document diagnosis, symptoms, treatment provided
-- ✅ **Lab Test Ordering:** Doctors order tests, lab techs process and upload results
-- ✅ **Medication Administration:** Nurses track medication administration with timestamps
-- ✅ **Shift Handover:** Nurses document handover notes for shift changes
+## Clinical Workflows
+- **Appointment Scheduling:** Patients request appointments, doctors manage availability, admins approve
+- **Prescriptions:** Doctors create prescriptions (medication, dosage, frequency, duration)
+- **Vital Signs Recording:** Nurses enter BP, HR, temperature, O2 saturation, weight, height
+- **Medical Records:** Doctors document diagnosis, symptoms, treatment provided
+- **Lab Test Ordering:** Doctors order tests, lab techs process and upload results
+- **Medication Administration:** Nurses track medication administration with timestamps
+- **Shift Handover:** Nurses document handover notes for shift changes
 
-## 👥 Role-Based Access Control
-- ✅ **Patient:** Book appointments, view own records, manage medications, grant consents
-- ✅ **Doctor:** Manage schedules, write prescriptions, access assigned patients
-- ✅ **Nurse:** Record vitals, administer medications, document tasks
-- ✅ **Lab Technician:** Process test orders, upload results
-- ✅ **Admin:** Approve appointments, manage users, view audit logs
+## Role-Based Access Control
+- **Patient:** Book appointments, view own records, manage medications, grant consents
+- **Doctor:** Manage schedules, write prescriptions, access assigned patients
+- **Nurse:** Record vitals, administer medications, document tasks
+- **Lab Technician:** Process test orders, upload results
+- **Admin:** Approve appointments, manage users, view audit logs
 
-## 📊 Data Governance
-- ✅ **Audit Logging:** Every access logged (who, what, when, where, why)
-- ✅ **Consent Tracking:** Patient consent for data sharing tracked and logged
-- ✅ **Automatic Backups:** Daily at 2 AM (configurable retention)
-- ✅ **Data Archival:** Inactive users archived after 365 days
-- ✅ **Password History:** Prevents password reuse (last 5 passwords)
-- ✅ **IDOR Protection:** Patients can only access their own data
+## Data Governance
+- **Audit Logging:** Every access logged (who, what, when, where, why)
+- **Consent Tracking:** Patient consent for data sharing tracked and logged
+- **Automatic Backups:** Daily at 2 AM (configurable retention)
+- **Data Archival:** Inactive users archived after 365 days
+- **Password History:** Prevents password reuse (last 5 passwords)
+- **IDOR Protection:** Patients can only access their own data
 
-## 🔒 Security Practices
-- ✅ CORS configured (localhost:3000 default, configurable per environment)
-- ✅ CSRF protection via stateless JWT (not vulnerable)
-- ✅ Input validation on all DTOs
-- ✅ Rate limiting on sensitive endpoints
-- ✅ Token blacklist service (logout invalidates tokens)
-- ✅ Audit logs encrypted in storage
-- ✅ Patient record access protected by validator
+## Security Practices
+- CORS configured (localhost:3000 default, configurable per environment)
+- CSRF protection via stateless JWT (not vulnerable)
+- Input validation on all DTOs
+- Rate limiting on sensitive endpoints
+- Token blacklist service (logout invalidates tokens)
+- Audit logs encrypted in storage
+- Patient record access protected by validator
 
 ---
 
-# 👥 User Roles & Workflows
+# User Roles & Workflows
 
 ## 1. Patient Workflow
 ```
@@ -251,7 +251,7 @@ Login (2FA required) → Dashboard (system metrics, pending approvals) →
 
 ---
 
-# 🚀 Getting Started
+# Getting Started
 
 ## Prerequisites
 - Node.js 18+ (for frontend)
@@ -323,12 +323,12 @@ After seeding, use these to test:
 
 ---
 
-# 📁 Project Structure
+# Project Structure
 
 ```
 PatientManagementSystem/
 │
-├── 📂 backend/                          # Spring Boot API
+├── backend/                          # Spring Boot API
 │   └── Backend/
 │       ├── src/main/java/com/securehealth/backend/
 │       │   ├── config/
@@ -380,7 +380,7 @@ PatientManagementSystem/
 │       ├── pom.xml                     # Maven dependencies
 │       └── Dockerfile
 │
-├── 📂 frontend/                         # React application
+├── frontend/                         # React application
 │   └── app/
 │       ├── src/
 │       │   ├── components/             # Reusable UI components
@@ -423,7 +423,7 @@ PatientManagementSystem/
 │       ├── package.json
 │       └── Dockerfile
 │
-├── 📂 DB/                               # Database
+├── DB/                               # Database
 │   ├── schema.sql                       # Complete schema definition
 │   ├── seed_users.sql                   # Sample users
 │   └── DB_README.md
@@ -441,7 +441,7 @@ PatientManagementSystem/
 
 ---
 
-# 🔐 Security Architecture
+# Security Architecture
 
 ## Authentication Flow
 
@@ -605,7 +605,7 @@ AND (
 
 ---
 
-# 📡 API Documentation
+# API Documentation
 
 ## Authentication Endpoints
 
@@ -755,7 +755,7 @@ Response (200 OK):
 
 ---
 
-# 🗄️ Database Schema
+# Database Schema
 
 ### Core Tables
 
@@ -815,7 +815,7 @@ Response (200 OK):
 
 ---
 
-# 🐳 Deployment
+# Deployment
 
 ## Docker Compose (Development)
 ```bash
@@ -876,7 +876,7 @@ GitHub Actions automatically:
 
 ---
 
-# ✅ Testing
+# Testing
 
 ## Backend Tests
 ```bash
@@ -916,9 +916,9 @@ npm run test:unit
 
 ---
 
-# 🚨 Known Issues & Improvements
+# Known Issues & Improvements
 
-## ⚠️ Known Issues
+## Known Issues
 
 ### Issue 1: Admin Workflows Not Fully Tested
 **Status:** Low Priority  
@@ -939,7 +939,7 @@ npm run test:unit
 **Fix:** Implement refresh token rotation on every use  
 **Timeline:** v1.1
 
-## 🔄 Planned Improvements
+## Planned Improvements
 
 ### v1.0.1 (Hotfixes)
 - [ ] Fix lab file upload FormData handling
@@ -969,7 +969,7 @@ npm run test:unit
 
 ---
 
-# 👨‍💻 Developer Notes
+# Developer Notes
 
 ## Architecture Decisions
 
@@ -1052,7 +1052,7 @@ npm run test:unit
 
 ---
 
-# 📚 Additional Resources
+# Additional Resources
 
 - [Spring Boot Documentation](https://spring.io/projects/spring-boot)
 - [React Documentation](https://react.dev)
@@ -1062,13 +1062,13 @@ npm run test:unit
 
 ---
 
-# 📄 License
+# License
 
 This project is for educational purposes and interview demonstration.
 
 ---
 
-# 📧 Contact & Support
+# Contact & Support
 
 For questions or issues:
 1. Check the [TECHNICAL_AUDIT_REPORT.md](TECHNICAL_AUDIT_REPORT.md) for detailed architectural documentation
@@ -1078,6 +1078,6 @@ For questions or issues:
 ---
 
 **Last Updated:** April 20, 2026  
-**Status:** ✅ Production-Ready for Education/Interview Use  
+**Status:** Production-Ready for Education/Interview Use  
 **Maintained By:** Manvitha Dungi
 
