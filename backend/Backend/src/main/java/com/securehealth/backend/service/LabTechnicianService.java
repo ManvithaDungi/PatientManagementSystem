@@ -2,7 +2,9 @@ package com.securehealth.backend.service;
 
 import com.securehealth.backend.dto.LabTestDTO;
 import com.securehealth.backend.model.LabTest;
+import com.securehealth.backend.model.Login;
 import com.securehealth.backend.repository.LabTestRepository;
+import com.securehealth.backend.repository.DoctorProfileRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,6 +28,20 @@ public class LabTechnicianService {
 
     @Autowired
     private LabTestRepository labTestRepository;
+
+    @Autowired
+    private DoctorProfileRepository doctorProfileRepository;
+
+    /** Resolves a display name for the ordering doctor/staff member; falls back to email. */
+    private String resolveOrderedByName(Login orderedBy) {
+        if (orderedBy == null) {
+            return "Unknown Staff";
+        }
+        return doctorProfileRepository.findByUser(orderedBy)
+                .map(p -> (p.getFirstName() + " " + p.getLastName()).trim())
+                .filter(name -> !name.isEmpty())
+                .orElse(orderedBy.getEmail());
+    }
 
     /**
      * Aggregates statistical overview data for the lab technician dashboard.
@@ -125,7 +141,9 @@ public class LabTechnicianService {
         }
         
         if(test.getOrderedBy() != null) {
-            dto.setOrderedByDoctor(test.getOrderedBy().getEmail()); // Or doctor's name if you link it to DoctorProfile
+            String name = resolveOrderedByName(test.getOrderedBy());
+            dto.setOrderedByName(name);
+            dto.setOrderedByDoctor(name);
             dto.setOrderedById(test.getOrderedBy().getUserId());
         }
         

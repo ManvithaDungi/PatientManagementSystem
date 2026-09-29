@@ -322,6 +322,31 @@ public class AuthService {
     }
 
     /**
+     * Re-sends a fresh OTP to a user who already passed the password step and is
+     * waiting on 2FA verification (mirrors the OTP-generation branch of {@link #login}).
+     *
+     * @param email the email of the user awaiting OTP verification
+     * @throws RuntimeException if the user does not exist or does not require 2FA
+     */
+    @Transactional
+    public void resendOtp(String email) {
+        Login user = loginRepository.findByEmail(email)
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        if (!user.isTwoFactorEnabled()) {
+            throw new RuntimeException("Two-Factor Authentication is not enabled for this account");
+        }
+
+        String otp = generateOtp();
+        user.setOtp(otp);
+        user.setOtpExpiry(LocalDateTime.now().plusMinutes(5));
+        loginRepository.save(user);
+
+        emailService.sendOtp(user.getEmail(), otp);
+        logEvent(email, "OTP_RESENT", "UNKNOWN", "UNKNOWN", "OTP re-sent to email");
+    }
+
+    /**
      * Enables Two-Factor Authentication for a user.
      *
      * @param email the email of the user to enable 2FA for
@@ -546,10 +571,8 @@ public class AuthService {
      * @param user The user whose sessions should be invalidated.
      */
     private void invalidateAllUserSessions(Login user) {
-        // This would require a query to find all sessions by user
-        // For now, we'll rely on the password change invalidating the JWT
-        // In a full implementation, you'd add:
-        // sessionRepository.revokeAllByUser(user);
+        sessionRepository.revokeAllUserSessions(user.getUserId());
+        tokenBlacklistService.clearIdleSession(user.getEmail());
     }
 
     /**

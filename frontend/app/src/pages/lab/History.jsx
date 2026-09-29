@@ -10,6 +10,7 @@ const LabHistory = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
+    const [reportError, setReportError] = useState(null);
 
     useEffect(() => {
         const fetchHistory = async () => {
@@ -29,6 +30,20 @@ const LabHistory = () => {
         };
         fetchHistory();
     }, []);
+
+    // A plain <a href> to /api/files/{filename} can't carry the app's bearer token,
+    // so the file must be fetched with an authenticated request instead (LA-3).
+    const handleViewReport = async (filename) => {
+        setReportError(null);
+        try {
+            const objectUrl = await api.files.getObjectUrl(filename);
+            window.open(objectUrl, '_blank', 'noopener,noreferrer');
+            setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+        } catch (err) {
+            console.error('Failed to open report:', err);
+            setReportError('Unable to open this report. Please try again.');
+        }
+    };
 
     const filteredHistory = orders.filter(order => {
         const matchesSearch =
@@ -57,6 +72,9 @@ const LabHistory = () => {
             </div>
 
             <Card className="p-3 dark:bg-slate-800">
+                {reportError && (
+                    <div className="mb-3 p-2 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 text-xs">{reportError}</div>
+                )}
                 <div className="flex flex-col gap-3 mb-4">
                     <div className="flex flex-col md:flex-row justify-between items-center gap-3">
                         {/* Search */}
@@ -128,9 +146,9 @@ const LabHistory = () => {
                                             {order.resultValue ? (
                                                 <span className="text-gray-700 dark:text-slate-300">{order.resultValue} {order.unit || ''}</span>
                                             ) : order.fileUrl ? (
-                                                <a href={order.fileUrl} target="_blank" rel="noopener noreferrer" className="text-brand-medium hover:text-brand-deep">
+                                                <button type="button" onClick={() => handleViewReport(order.fileUrl)} className="text-brand-medium hover:text-brand-deep underline">
                                                     View Report
-                                                </a>
+                                                </button>
                                             ) : (
                                                 <span className="text-gray-400 dark:text-slate-500">—</span>
                                             )}

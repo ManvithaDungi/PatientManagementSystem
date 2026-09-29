@@ -14,7 +14,10 @@ import java.util.List;
  */
 @Data
 public class DoctorDTO {
-    private Long id; 
+    /** DoctorProfile.profileId — identifies the profile row itself. */
+    private Long id;
+    /** Login.userId — the identity/booking ID used by AppointmentController, PatientController, etc. */
+    private Long userId;
     private String firstName;
     private String lastName;
     private String email; 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
     ArrowLeft, Clock, Activity, Pill, Plus
@@ -7,16 +7,15 @@ import {
 import Card from '../../components/common/Card';
 import Button from '../../components/common/Button';
 import Badge from '../../components/common/Badge';
-import Modal from '../../components/common/Modal';
-import Input from '../../components/common/Input';
 
 import TreatmentModal from '../../components/doctor/TreatmentModal';
+import PrescriptionModal from '../../components/doctor/PrescriptionModal';
+import VitalSignModal from '../../components/doctor/VitalSignModal';
+import MedicalRecordModal from '../../components/doctor/MedicalRecordModal';
 import MedicalHistoryList from '../../components/doctor/MedicalHistoryList';
 import LabResultsList from '../../components/doctor/LabResultsList';
 
 import api from '../../services/api';
-import { getPatientById } from '../../mocks/patients';
-import { mockPrescriptions, mockTreatments } from '../../mocks/records';
 
 const PatientDetail = () => {
     const { id } = useParams();
@@ -27,103 +26,70 @@ const PatientDetail = () => {
     const [activeTab, setActiveTab] = useState('overview');
 
     // Data States
-    const [prescriptions, setPrescriptions] = useState(mockPrescriptions);
-    const [treatments, setTreatments] = useState(mockTreatments);
+    const [prescriptions, setPrescriptions] = useState([]);
+    const [treatments, setTreatments] = useState([]);
     const [medicalHistory, setMedicalHistory] = useState([]);
     const [labs, setLabs] = useState([]);
+    const [latestVitals, setLatestVitals] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
+    const [loadError, setLoadError] = useState(null);
     const [isRxModalOpen, setIsRxModalOpen] = useState(false);
     const [isTreatmentModalOpen, setIsTreatmentModalOpen] = useState(false);
-    const [newRx, setNewRx] = useState({ name: '', dosage: '', frequency: '', duration: '', instructions: '' });
+    const [isVitalsModalOpen, setIsVitalsModalOpen] = useState(false);
+    const [isRecordModalOpen, setIsRecordModalOpen] = useState(false);
 
-    // Fetch Data
-    React.useEffect(() => {
-        const fetchData = async () => {
-            setIsLoading(true);
-            try {
-                // 1. Patient Details
-                try {
-                    const patientData = await api.patients.getById(id);
-                    if (patientData && patientData.id) {
-                        setPatient(patientData);
-                    } else {
-                        // Fallback to mock if API returns nothing or fails
-                        setPatient(getPatientById(id));
-                    }
-                } catch (e) {
-                    console.warn('Failed to fetch patient from API, using mock', e);
-                    setPatient(getPatientById(id));
-                }
-
-                // 2. Prescriptions
-                try {
-                    const rxData = await api.prescriptions.getByPatient(id);
-                    if (Array.isArray(rxData)) setPrescriptions(rxData);
-                } catch (e) { console.warn('Using mock prescriptions'); }
-
-                // 3. Medical History
-                try {
-                    const historyData = await api.medicalRecords.getByPatient(id);
-                    if (Array.isArray(historyData)) setMedicalHistory(historyData);
-                } catch (e) { console.warn('Using mock history'); }
-
-                // 4. Lab Results
-                try {
-                    const labData = await api.labResults.getByPatient(id);
-                    if (Array.isArray(labData)) setLabs(labData);
-                } catch (e) { console.warn('Using mock labs'); }
-
-            } catch (error) {
-                console.error('Error loading patient details:', error);
-            } finally {
-                setIsLoading(false);
-            }
-        };
-
-        if (id) fetchData();
+    // Fetch Data — no mock fallback: a doctor must never see fabricated
+    // clinical data presented as if it were real (see FULL_STACK_INTEGRATION_AUDIT.md DR-13).
+    const fetchData = useCallback(async () => {
+        if (!id) return;
+        setIsLoading(true);
+        setLoadError(null);
+        try {
+            const [patientData, rxData, historyData, labData, vitalsData] = await Promise.all([
+                api.patients.getById(id),
+                api.prescriptions.getByPatient(id).catch(() => []),
+                api.medicalRecords.getByPatient(id).catch(() => []),
+                api.labResults.getByPatient(id).catch(() => []),
+                api.vitalSigns.getLatest(id).catch(() => null),
+            ]);
+            setPatient(patientData);
+            setPrescriptions(Array.isArray(rxData) ? rxData : []);
+            setMedicalHistory(Array.isArray(historyData) ? historyData : []);
+            setLabs(Array.isArray(labData) ? labData : []);
+            setLatestVitals(vitalsData || null);
+        } catch (error) {
+            console.error('Error loading patient details:', error);
+            setLoadError('Unable to load this patient\'s chart right now. Please try again.');
+        } finally {
+            setIsLoading(false);
+        }
     }, [id]);
 
-    if (isLoading && !patient) return <div className="p-6 dark:text-slate-100">Loading patient details...</div>;
+    useEffect(() => {
+        fetchData();
+    }, [fetchData]);
+
+    if (isLoading) return <div className="p-6 dark:text-slate-100">Loading patient details...</div>;
+    if (loadError) {
+        return (
+            <div className="p-6">
+                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 text-sm rounded p-3 flex items-center justify-between">
+                    <span>{loadError}</span>
+                    <Button variant="outline" className="text-xs" onClick={fetchData}>Retry</Button>
+                </div>
+            </div>
+        );
+    }
     if (!patient) return <div className="p-6 dark:text-slate-100">Patient not found</div>;
 
-    const patientFullName = `${patient.firstName || ''} ${patient.lastName || ''}`.trim() || patient.name || 'Unknown';
+    const patientFullName = `${patient.firstName || ''} ${patient.lastName || ''}`.trim() || 'Unknown';
     const patientAge = patient.dateOfBirth
         ? Math.floor((Date.now() - new Date(patient.dateOfBirth)) / (365.25 * 24 * 60 * 60 * 1000))
-        : patient.age || 'N/A';
-
-    const handleAddRx = (e) => {
-        e.preventDefault();
-        const rx = {
-            id: Date.now(),
-            ...newRx,
-            active: true,
-            prescribedBy: 'Dr. Smith', // Dynamic in real app
-            date: new Date().toISOString().split('T')[0]
-        };
-        setPrescriptions([rx, ...prescriptions]);
-        setIsRxModalOpen(false);
-        setNewRx({ name: '', dosage: '', frequency: '', duration: '', instructions: '' });
-    };
-
-    const handleRenewRx = (rx) => {
-        const renewedRx = {
-            ...rx,
-            id: Date.now(),
-            active: true,
-            date: new Date().toISOString().split('T')[0],
-            prescribedBy: 'Dr. Smith'
-        };
-        setPrescriptions([renewedRx, ...prescriptions]);
-        alert(`Prescription for ${rx.medicationName || rx.name} renewed successfully.`);
-    };
-
-    const handleDeleteRx = (rxId) => {
-        if (window.confirm('Are you sure you want to delete this prescription?')) {
-            setPrescriptions(prescriptions.filter(rx => rx.id !== rxId));
-        }
-    };
+        : 'N/A';
 
     const handleAddTreatment = (treatment) => {
+        // No backend Treatment entity exists yet (see FULL_STACK_INTEGRATION_AUDIT.md DR-5) —
+        // this list is intentionally local-only/session-only until that feature is built.
         const newTreatment = {
             id: Date.now(),
             ...treatment,
@@ -132,8 +98,8 @@ const PatientDetail = () => {
         setTreatments([newTreatment, ...treatments]);
     };
 
-    const activePrescriptions = prescriptions.filter(rx => rx.active === true || rx.status === 'ACTIVE');
-    const historyPrescriptions = prescriptions.filter(rx => rx.active === false || (rx.status && rx.status !== 'ACTIVE'));
+    const activePrescriptions = prescriptions.filter(rx => rx.status === 'ACTIVE');
+    const historyPrescriptions = prescriptions.filter(rx => rx.status && rx.status !== 'ACTIVE');
 
     return (
         <div className="space-y-3">
@@ -180,27 +146,43 @@ const PatientDetail = () => {
                 {activeTab === 'overview' && (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <Card className="p-3 dark:bg-slate-800">
-                            <h3 className="text-sm font-bold text-gray-800 dark:text-slate-100 mb-2 flex items-center">
-                                <Activity className="w-4 h-4 mr-1.5 text-blue-500" />
-                                Vitals & Condition
-                            </h3>
+                            <div className="flex justify-between items-center mb-2">
+                                <h3 className="text-sm font-bold text-gray-800 dark:text-slate-100 flex items-center">
+                                    <Activity className="w-4 h-4 mr-1.5 text-blue-500" />
+                                    Vitals & Condition
+                                </h3>
+                                <Button variant="outline" className="text-xs py-0.5" onClick={() => setIsVitalsModalOpen(true)}>
+                                    <Plus className="w-3.5 h-3.5 mr-1" /> Record
+                                </Button>
+                            </div>
                             <div className="space-y-2">
                                 <div className="flex justify-between border-b dark:border-slate-700 pb-1 text-sm">
                                     <span className="text-gray-600 dark:text-slate-400">Condition</span>
                                     <span className="font-medium dark:text-slate-100">{patient.medicalHistory || 'N/A'}</span>
                                 </div>
-                                <div className="flex justify-between border-b dark:border-slate-700 pb-1 text-sm">
-                                    <span className="text-gray-600 dark:text-slate-400">Blood Pressure</span>
-                                    <span className="font-medium dark:text-slate-100">120/80</span>
-                                </div>
-                                <div className="flex justify-between border-b dark:border-slate-700 pb-1 text-sm">
-                                    <span className="text-gray-600 dark:text-slate-400">Heart Rate</span>
-                                    <span className="font-medium dark:text-slate-100">72 bpm</span>
-                                </div>
-                                <div className="flex justify-between text-sm">
-                                    <span className="text-gray-600 dark:text-slate-400">Weight</span>
-                                    <span className="font-medium dark:text-slate-100">70 kg</span>
-                                </div>
+                                {latestVitals ? (
+                                    <>
+                                        <div className="flex justify-between border-b dark:border-slate-700 pb-1 text-sm">
+                                            <span className="text-gray-600 dark:text-slate-400">Blood Pressure</span>
+                                            <span className="font-medium dark:text-slate-100">{latestVitals.bloodPressure || 'N/A'}</span>
+                                        </div>
+                                        <div className="flex justify-between border-b dark:border-slate-700 pb-1 text-sm">
+                                            <span className="text-gray-600 dark:text-slate-400">Heart Rate</span>
+                                            <span className="font-medium dark:text-slate-100">{latestVitals.heartRate ? `${latestVitals.heartRate} bpm` : 'N/A'}</span>
+                                        </div>
+                                        <div className="flex justify-between text-sm">
+                                            <span className="text-gray-600 dark:text-slate-400">Weight</span>
+                                            <span className="font-medium dark:text-slate-100">{latestVitals.weight ? `${latestVitals.weight} kg` : 'N/A'}</span>
+                                        </div>
+                                        {latestVitals.recordedAt && (
+                                            <p className="text-xs text-gray-400 dark:text-slate-500 pt-1">
+                                                Recorded {new Date(latestVitals.recordedAt).toLocaleString()}
+                                            </p>
+                                        )}
+                                    </>
+                                ) : (
+                                    <p className="text-sm text-gray-500 dark:text-slate-400 py-2">No vitals recorded yet.</p>
+                                )}
                             </div>
                         </Card>
 
@@ -209,13 +191,22 @@ const PatientDetail = () => {
                                 <Clock className="w-4 h-4 mr-1.5 text-blue-500" />
                                 Recent Activity
                             </h3>
-                            <ul className="space-y-1.5">
-                                {medicalHistory.slice(0, 3).map((item, idx) => (
-                                    <li key={item.id ?? idx} className="text-xs">
-                                        <span className="font-bold text-gray-700 dark:text-slate-300">{item.date}:</span> <span className="dark:text-slate-400">{item.type} - {item.note}</span>
-                                    </li>
-                                ))}
-                            </ul>
+                            {medicalHistory.length > 0 ? (
+                                <ul className="space-y-1.5">
+                                    {medicalHistory.slice(0, 3).map((item, idx) => (
+                                        <li key={item.recordId ?? idx} className="text-xs">
+                                            <span className="font-bold text-gray-700 dark:text-slate-300">
+                                                {item.recordDate ? new Date(item.recordDate).toLocaleDateString() : ''}:
+                                            </span>{' '}
+                                            <span className="dark:text-slate-400">
+                                                {item.diagnosis}{item.symptoms ? ` — ${item.symptoms}` : ''}
+                                            </span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            ) : (
+                                <p className="text-xs text-gray-500 dark:text-slate-400">No recent activity.</p>
+                            )}
                         </Card>
                     </div>
                 )}
@@ -236,27 +227,21 @@ const PatientDetail = () => {
 
                             {activePrescriptions.length > 0 ? (
                                 activePrescriptions.map(rx => (
-                                    <Card key={rx.id} className="p-3 flex justify-between items-start group hover:border-blue-300 dark:hover:border-blue-600 transition-colors dark:bg-slate-800">
+                                    <Card key={rx.prescriptionId} className="p-3 flex justify-between items-start group hover:border-blue-300 dark:hover:border-blue-600 transition-colors dark:bg-slate-800">
                                         <div className="flex items-start">
                                             <div className="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 mr-2">
                                                 <Pill size={16} />
                                             </div>
                                             <div>
                                                 <div className="flex items-center gap-1.5">
-                                                    <h4 className="font-bold text-gray-800 dark:text-slate-100 text-sm">{rx.name || rx.medicationName}</h4>
+                                                    <h4 className="font-bold text-gray-800 dark:text-slate-100 text-sm">{rx.medicationName}</h4>
                                                     <Badge type="green">Active</Badge>
                                                 </div>
                                                 <div className="text-xs text-gray-600 dark:text-slate-400 font-medium">{rx.dosage} • {rx.frequency}</div>
                                                 {rx.duration && <div className="text-xs text-gray-500 dark:text-slate-400">Duration: {rx.duration}</div>}
-                                                {rx.instructions && <div className="text-xs text-gray-500 dark:text-slate-400 italic">"{rx.instructions}"</div>}
-                                                <div className="text-xs text-gray-400 dark:text-slate-500 mt-1">Prescribed by {rx.prescribedBy} on {rx.date}</div>
+                                                {rx.specialInstructions && <div className="text-xs text-gray-500 dark:text-slate-400 italic">"{rx.specialInstructions}"</div>}
+                                                <div className="text-xs text-gray-400 dark:text-slate-500 mt-1">Prescribed by {rx.doctorName}</div>
                                             </div>
-                                        </div>
-                                        <div className="flex flex-col space-y-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                            <Button variant="outline" className="text-xs py-0.5 h-6">Edit</Button>
-                                            <Button variant="danger" className="text-xs py-0.5 h-6 bg-white dark:bg-slate-700 border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20" onClick={() => handleDeleteRx(rx.id)}>
-                                                Discontinue
-                                            </Button>
                                         </div>
                                     </Card>
                                 ))
@@ -277,16 +262,12 @@ const PatientDetail = () => {
                             {historyPrescriptions.length > 0 ? (
                                 <div className="bg-gray-50 dark:bg-slate-800 rounded overflow-hidden border border-gray-200 dark:border-slate-700">
                                     {historyPrescriptions.map((rx, idx) => (
-                                        <div key={rx.id} className={`p-2.5 flex justify-between items-center ${idx !== historyPrescriptions.length - 1 ? 'border-b border-gray-200 dark:border-slate-700' : ''}`}>
+                                        <div key={rx.prescriptionId} className={`p-2.5 flex justify-between items-center ${idx !== historyPrescriptions.length - 1 ? 'border-b border-gray-200 dark:border-slate-700' : ''}`}>
                                             <div className="opacity-70">
-                                                <h4 className="font-bold text-sm text-gray-700 dark:text-slate-300">{rx.name || rx.medicationName}</h4>
+                                                <h4 className="font-bold text-sm text-gray-700 dark:text-slate-300">{rx.medicationName}</h4>
                                                 <p className="text-xs text-gray-500 dark:text-slate-400">{rx.dosage} • {rx.frequency}</p>
-                                                <p className="text-xs text-gray-400 dark:text-slate-500">Ended: {rx.date}</p>
                                             </div>
-                                            <div className="flex items-center gap-2">
-                                                <Badge type="gray">Discontinued</Badge>
-                                                <Button variant="outline" className="text-xs" onClick={() => handleRenewRx(rx)}>Renew</Button>
-                                            </div>
+                                            <Badge type="gray">{rx.status}</Badge>
                                         </div>
                                     ))}
                                 </div>
@@ -302,89 +283,67 @@ const PatientDetail = () => {
                 {activeTab === 'treatments' && (
                     <div className="space-y-2">
                         <div className="flex justify-between items-center bg-gray-50 dark:bg-slate-800 p-2.5 rounded">
-                            <h3 className="font-bold text-sm text-gray-700 dark:text-slate-300">Active Treatments</h3>
+                            <div>
+                                <h3 className="font-bold text-sm text-gray-700 dark:text-slate-300">Active Treatments</h3>
+                                <p className="text-xs text-gray-500 dark:text-slate-400">Not yet backed by a database — entries are lost on refresh.</p>
+                            </div>
                             <Button onClick={() => setIsTreatmentModalOpen(true)} className="flex items-center text-xs">
                                 <Plus className="w-3.5 h-3.5 mr-1" /> Add Treatment
                             </Button>
                         </div>
-                        {treatments.map(item => (
+                        {treatments.length > 0 ? treatments.map(item => (
                             <Card key={item.id} className="p-3 flex flex-col md:flex-row justify-between items-start md:items-center dark:bg-slate-800">
                                 <div>
                                     <h4 className="font-bold text-sm text-gray-800 dark:text-slate-100">{item.name}</h4>
                                     <p className="text-xs text-gray-600 dark:text-slate-400">{item.notes}</p>
                                     <Badge type="blue" className="mt-1">{item.frequency}</Badge>
                                 </div>
-                                <div className="mt-2 md:mt-0">
-                                    <Button variant="outline" className="text-xs py-0.5">Edit</Button>
-                                </div>
                             </Card>
-                        ))}
+                        )) : (
+                            <div className="text-center py-3 text-gray-400 dark:text-slate-500 text-xs">No treatments recorded this session.</div>
+                        )}
                     </div>
                 )}
 
-                {activeTab === 'history' && <MedicalHistoryList history={medicalHistory} />}
+                {activeTab === 'history' && (
+                    <div className="space-y-2">
+                        <div className="flex justify-end">
+                            <Button onClick={() => setIsRecordModalOpen(true)} className="flex items-center text-xs">
+                                <Plus className="w-3.5 h-3.5 mr-1" /> Add Record
+                            </Button>
+                        </div>
+                        <MedicalHistoryList history={medicalHistory} />
+                    </div>
+                )}
                 {activeTab === 'labs' && (
                     <LabResultsList
                         labs={labs}
                         patientId={Number(id)}
-                        onAdd={(newLab) => setLabs(prev => [...prev, { ...newLab, id: Date.now() }])}
+                        onAdd={(newLab) => setLabs(prev => [...prev, newLab])}
                     />
                 )}
             </div>
 
-            {/* Add Prescription Modal */}
-            <Modal
+            <PrescriptionModal
                 isOpen={isRxModalOpen}
                 onClose={() => setIsRxModalOpen(false)}
-                title="Prescribe Medication"
-            >
-                <form onSubmit={handleAddRx} className="space-y-4">
-                    <Input
-                        label="Medication Name"
-                        value={newRx.name}
-                        onChange={e => setNewRx({ ...newRx, name: e.target.value })}
-                        placeholder="e.g. Amoxicillin"
-                        required
-                    />
-                    <div className="grid grid-cols-2 gap-4">
-                        <Input
-                            label="Dosage"
-                            value={newRx.dosage}
-                            onChange={e => setNewRx({ ...newRx, dosage: e.target.value })}
-                            placeholder="e.g. 500mg"
-                            required
-                        />
-                        <Input
-                            label="Frequency"
-                            value={newRx.frequency}
-                            onChange={e => setNewRx({ ...newRx, frequency: e.target.value })}
-                            placeholder="e.g. 3x Daily"
-                            required
-                        />
-                    </div>
-                    <Input
-                        label="Duration"
-                        value={newRx.duration}
-                        onChange={e => setNewRx({ ...newRx, duration: e.target.value })}
-                        placeholder="e.g. 7 days"
-                        required
-                    />
-                    <div className="space-y-1">
-                        <label className="block text-sm font-medium text-gray-700 dark:text-slate-300">Instructions</label>
-                        <textarea
-                            className="w-full px-4 py-2 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all resize-none h-24 dark:bg-slate-700 dark:text-slate-100 dark:placeholder-slate-400"
-                            value={newRx.instructions}
-                            onChange={e => setNewRx({ ...newRx, instructions: e.target.value })}
-                            placeholder="e.g. Take with food..."
-                        />
-                    </div>
+                patientId={Number(id)}
+                onAdd={() => fetchData()}
+            />
 
-                    <div className="pt-4 flex justify-end space-x-3 border-t border-gray-100 dark:border-slate-700">
-                        <Button type="button" variant="secondary" onClick={() => setIsRxModalOpen(false)}>Cancel</Button>
-                        <Button type="submit">Submit Prescription</Button>
-                    </div>
-                </form>
-            </Modal>
+            <VitalSignModal
+                isOpen={isVitalsModalOpen}
+                onClose={() => setIsVitalsModalOpen(false)}
+                patientId={Number(id)}
+                onAdd={() => fetchData()}
+            />
+
+            <MedicalRecordModal
+                isOpen={isRecordModalOpen}
+                onClose={() => setIsRecordModalOpen(false)}
+                patientId={Number(id)}
+                onAdd={() => fetchData()}
+            />
 
             <TreatmentModal
                 isOpen={isTreatmentModalOpen}

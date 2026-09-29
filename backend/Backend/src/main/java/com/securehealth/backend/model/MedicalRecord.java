@@ -39,6 +39,10 @@ public class MedicalRecord {
     @Column(columnDefinition = "TEXT")
     private String treatmentProvided;
 
+    // Free-text clinician notes, distinct from symptoms/treatmentProvided
+    @Column(columnDefinition = "TEXT")
+    private String notes;
+
     // Path to uploaded file attachment (encrypted at rest)
     private String attachmentUrl;
 

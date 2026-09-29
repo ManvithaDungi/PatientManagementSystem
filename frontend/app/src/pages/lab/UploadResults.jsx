@@ -11,6 +11,7 @@ const UploadResults = () => {
     const [testValues, setTestValues] = useState('');
     const [remarks, setRemarks] = useState('');
     const [status, setStatus] = useState('idle'); // idle, uploading, success, error
+    const [errorMessage, setErrorMessage] = useState(null);
 
     useEffect(() => {
         const fetchOrders = async () => {
@@ -37,7 +38,8 @@ const UploadResults = () => {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        
+        setErrorMessage(null);
+
         // Require: order selection AND test values (test values are the main result)
         if (!selectedOrder || !testValues.trim()) {
             setStatus('error');
@@ -46,19 +48,23 @@ const UploadResults = () => {
 
         try {
             setStatus('uploading');
-            
-            // Send result to backend
-            // Backend requires: resultValue (test values), remarks (optional), fileUrl (optional)
-            // File upload not supported yet - fileUrl must be obtained from external file storage service
+
+            // Upload the reference file (if any) first, then attach its stored
+            // filename as fileUrl when submitting the result.
+            let fileUrl = null;
+            if (file) {
+                fileUrl = await api.files.upload(file);
+            }
+
             await api.labTechnician.uploadResults(
                 selectedOrder,
                 testValues.trim(),
                 remarks.trim() || null,
-                null  // fileUrl: Not supported yet - requires separate file upload endpoint on backend
+                fileUrl
             );
-            
+
             setStatus('success');
-            
+
             // Reset form after success
             setTimeout(() => {
                 setSelectedOrder('');
@@ -69,6 +75,7 @@ const UploadResults = () => {
             }, 2000);
         } catch (err) {
             console.error('Upload failed:', err);
+            setErrorMessage(err.message || 'Please select an order and enter the test result value.');
             setStatus('error');
         }
     };
@@ -106,7 +113,7 @@ const UploadResults = () => {
 
                     <div className="border-t border-gray-100 dark:border-slate-700 pt-3 pb-3">
                         <p className="text-xs text-gray-500 dark:text-slate-400 mb-3">
-                            💡 <span className="font-medium">Optional:</span> Attach a reference file (lab report scan). The system does not automatically parse files yet - you must enter the test results manually in the field below.
+                            💡 <span className="font-medium">Optional:</span> Attach a reference file (lab report scan) — it will be encrypted and stored. The system does not automatically parse files, so you must also enter the test results manually in the field below.
                         </p>
                     </div>
 
@@ -181,7 +188,7 @@ const UploadResults = () => {
                     {status === 'error' && (
                         <div className="p-2.5 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 flex items-center text-xs">
                             <span className="mr-1.5">❌</span>
-                            Please select an order and enter the test result value.
+                            {errorMessage || 'Please select an order and enter the test result value.'}
                         </div>
                     )}
 

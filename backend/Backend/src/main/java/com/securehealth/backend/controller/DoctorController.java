@@ -55,6 +55,28 @@ public class DoctorController {
         return ResponseEntity.ok(doctorService.getAllDoctors());
     }
 
+    /**
+     * Returns the profile of the currently authenticated doctor, resolved via
+     * JWT identity rather than a client-supplied ID (avoids the profileId/userId
+     * ambiguity that {@code GET /{id}} carries).
+     * Endpoint: GET /api/doctors/me
+     */
+    @GetMapping("/me")
+    @PreAuthorize("hasAuthority('DOCTOR')")
+    public ResponseEntity<DoctorDTO> getMyProfile(Authentication auth) {
+        return ResponseEntity.ok(doctorService.getMyProfile(getCurrentEmail(auth)));
+    }
+
+    /**
+     * Updates the profile of the currently authenticated doctor.
+     * Endpoint: PUT /api/doctors/me
+     */
+    @PutMapping("/me")
+    @PreAuthorize("hasAuthority('DOCTOR')")
+    public ResponseEntity<DoctorDTO> updateMyProfile(@RequestBody DoctorDTO doctorDTO, Authentication auth) {
+        return ResponseEntity.ok(doctorService.updateMyProfile(getCurrentEmail(auth), doctorDTO));
+    }
+
     @GetMapping("/{id}")
     public ResponseEntity<DoctorDTO> getDoctorById(@PathVariable Long id) {
         return ResponseEntity.ok(doctorService.getDoctorById(id));

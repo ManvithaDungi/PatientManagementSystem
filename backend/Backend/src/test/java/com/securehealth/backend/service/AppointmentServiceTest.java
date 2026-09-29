@@ -7,6 +7,7 @@ import com.securehealth.backend.model.AppointmentStatus;
 import com.securehealth.backend.model.Login;
 import com.securehealth.backend.model.PatientProfile;
 import com.securehealth.backend.repository.AppointmentRepository;
+import com.securehealth.backend.repository.DoctorProfileRepository;
 import com.securehealth.backend.repository.LoginRepository;
 import com.securehealth.backend.repository.PatientProfileRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -36,6 +37,7 @@ public class AppointmentServiceTest {
     @Mock private AppointmentRepository appointmentRepository;
     @Mock private LoginRepository loginRepository;
     @Mock private PatientProfileRepository patientProfileRepository;
+    @Mock private DoctorProfileRepository doctorProfileRepository;
 
     // MUST BE @InjectMocks, NOT @Mock!
     @InjectMocks private AppointmentService appointmentService;
@@ -63,6 +65,10 @@ public class AppointmentServiceTest {
         pendingAppointment.setStatus(AppointmentStatus.PENDING_APPROVAL);
         pendingAppointment.setDoctor(doctorLogin);
         pendingAppointment.setPatient(patientProfile);
+
+        // toDTO() resolves a display name via DoctorProfileRepository; no profile
+        // row is set up for this test's doctor, so it falls back to the login email.
+        lenient().when(doctorProfileRepository.findByUser(any())).thenReturn(Optional.empty());
     }
 
     @Test
@@ -81,7 +87,7 @@ public class AppointmentServiceTest {
 
         when(appointmentRepository.save(any(Appointment.class))).thenAnswer(i -> i.getArguments()[0]);
 
-        Appointment result = appointmentService.createAppointment(request, "patient@mail.com");
+        AppointmentDTO result = appointmentService.createAppointment(request, "patient@mail.com");
 
         assertEquals(AppointmentStatus.PENDING_APPROVAL, result.getStatus());
         verify(appointmentRepository).save(any(Appointment.class));

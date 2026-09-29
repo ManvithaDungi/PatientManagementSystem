@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
-   Calendar, Clock, MapPin, Plus, AlertCircle, User, Building2, Check, ChevronRight, ChevronLeft, Bell, List, LayoutGrid,
+   Calendar, Clock, Plus, AlertCircle, User, Building2, Check, ChevronRight, ChevronLeft, Bell, List, LayoutGrid,
    RefreshCw,
 } from 'lucide-react';
 import Card from '../../components/common/Card';
@@ -26,27 +26,18 @@ const PatientAppointments = () => {
          startTime: appointmentDate,
          date: appointmentDate,
          time: appointmentDate ? format(new Date(appointmentDate), 'HH:mm') : '',
-         type: appt.reasonForVisit || appt.type || 'Consultation',
+         type: appt.appointmentType || appt.reasonForVisit || appt.type || 'Consultation',
          statusRaw,
       };
    };
 
-   // Mock data fallback constants
-   const mockDepartments = [
-      { id: 1, name: 'General', icon: 'G' },
-      { id: 2, name: 'Cardiology', icon: 'C' },
-      { id: 3, name: 'Neurology', icon: 'N' },
-      { id: 4, name: 'Orthopedics', icon: 'O' }
-   ];
-
-   const mockTimeSlots = {
-      morning: ['09:00', '09:30', '10:00', '10:30', '11:00', '11:30'],
-      afternoon: ['14:00', '14:30', '15:00', '15:30', '16:00', '16:30'],
-      evening: ['17:00', '17:30', '18:00', '18:30']
-   };
-
    const [appointments, setAppointments] = useState([]);
    const [doctors, setDoctors] = useState([]);
+   const [departments, setDepartments] = useState([]);
+   const [availableSlots, setAvailableSlots] = useState([]);
+   const [isLoadingSlots, setIsLoadingSlots] = useState(false);
+   const [rescheduleSlots, setRescheduleSlots] = useState([]);
+   const [isLoadingRescheduleSlots, setIsLoadingRescheduleSlots] = useState(false);
    const [isLoading, setIsLoading] = useState(false);
    const [error, setError] = useState(null);
    const [activeTab, setActiveTab] = useState('upcoming');
@@ -85,7 +76,7 @@ const PatientAppointments = () => {
    // Calendar State
    const [currentMonth, setCurrentMonth] = useState(new Date());
 
-   // Load appointments and doctors on mount
+   // Load appointments, doctors, and departments on mount
    const loadData = useCallback(async () => {
       if (!user?.userId) return;
       setIsLoading(true);
@@ -96,12 +87,14 @@ const PatientAppointments = () => {
          if (!profileId) {
             throw new Error('Patient profile not found');
          }
-         const [appointmentsData, doctorsData] = await Promise.all([
+         const [appointmentsData, doctorsData, departmentsData] = await Promise.all([
             api.appointments.getByPatient(profileId),
-            api.doctors.getAll()
+            api.doctors.getAll(),
+            api.catalog.getHospitalDepartments().catch(() => [])
          ]);
          setAppointments((appointmentsData || []).map(normalizeAppointment));
          setDoctors(doctorsData);
+         setDepartments(departmentsData || []);
       } catch (err) {
          console.error('Failed to load appointments:', err);
          setError('Failed to load appointments. Please refresh the page.');
@@ -110,9 +103,48 @@ const PatientAppointments = () => {
       }
    }, [user?.userId]);
 
+   // Fetch real open time slots for a doctor on a given date
+   const fetchSlotsFor = useCallback(async (doctorId, date, setter, loadingSetter) => {
+      if (!doctorId || !date) {
+         setter([]);
+         return;
+      }
+      loadingSetter(true);
+      try {
+         const slots = await api.appointments.getAvailableSlots(doctorId, date);
+         setter(Array.isArray(slots) ? slots : []);
+      } catch (err) {
+         console.error('Failed to load available slots:', err);
+         setter([]);
+      } finally {
+         loadingSetter(false);
+      }
+   }, []);
+
    useEffect(() => {
       loadData();
    }, [loadData]);
+
+   // Fetch real slots for the booking wizard whenever the chosen doctor/date changes
+   useEffect(() => {
+      const doctorId = requestForm.doctor || requestForm.doctorId;
+      if (isRequestModalOpen && doctorId && requestForm.date) {
+         fetchSlotsFor(doctorId, requestForm.date, setAvailableSlots, setIsLoadingSlots);
+      } else {
+         setAvailableSlots([]);
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+   }, [isRequestModalOpen, requestForm.doctor, requestForm.doctorId, requestForm.date]);
+
+   // Fetch real slots for the reschedule modal whenever the chosen date changes
+   useEffect(() => {
+      if (isRescheduleModalOpen && appointmentToReschedule?.doctorId && rescheduleData.date) {
+         fetchSlotsFor(appointmentToReschedule.doctorId, rescheduleData.date, setRescheduleSlots, setIsLoadingRescheduleSlots);
+      } else {
+         setRescheduleSlots([]);
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+   }, [isRescheduleModalOpen, appointmentToReschedule, rescheduleData.date]);
 
    // Filter appointments by tab
    const filteredAppointments = useMemo(() => {
@@ -143,7 +175,7 @@ const PatientAppointments = () => {
       }
       
       // Find the selected department name
-      const selectedDept = mockDepartments.find(dept => dept.id == requestForm.department);
+      const selectedDept = departments.find(dept => dept.id == requestForm.department);
       if (!selectedDept) return doctors;
       
       // Get department name for filtering
@@ -164,7 +196,7 @@ const PatientAppointments = () => {
          return doctorDept.toLowerCase().includes(deptName.toLowerCase()) ||
                 doctorSpecialty.toLowerCase().includes(deptName.toLowerCase());
       });
-   }, [doctors, requestForm.department]);
+   }, [doctors, departments, requestForm.department]);
 
    // Calendar days for current month
    const calendarDays = useMemo(() => {
@@ -191,12 +223,6 @@ const PatientAppointments = () => {
       return `${minutes}m`;
    };
 
-   // Available time slots
-   const availableTimeSlots = [
-      '09:00', '09:30', '10:00', '10:30', '11:00', '11:30',
-      '14:00', '14:30', '15:00', '15:30', '16:00', '16:30'
-   ];
-
    // Appointment types
    const appointmentTypes = ['Consultation', 'Follow-up', 'Check-up', 'Emergency'];
 
@@ -212,7 +238,7 @@ const PatientAppointments = () => {
    // Handle request appointment submission
    const handleRequestSubmit = async (e) => {
       e.preventDefault();
-      if (requestStep < 2) {
+      if (requestStep < 3) {
          setRequestStep(requestStep + 1);
       } else {
          try {
@@ -229,12 +255,20 @@ const PatientAppointments = () => {
             if (!requestForm.time) {
                throw new Error('Please select a time');
             }
+            if (!requestForm.type) {
+               throw new Error('Please select an appointment type');
+            }
+            if (!requestForm.reason) {
+               throw new Error('Please describe the reason for your visit');
+            }
 
             const dateTimeString = `${requestForm.date}T${requestForm.time}:00`;
             const payload = {
                doctorId: parseInt(requestForm.doctor || requestForm.doctorId),
                appointmentDate: dateTimeString,
-               reasonForVisit: requestForm.reason || requestForm.specialRequirements || 'Consultation'
+               reasonForVisit: requestForm.reason,
+               appointmentType: requestForm.type,
+               specialRequirements: requestForm.specialRequirements || null,
             };
 
             const newAppointment = await api.appointments.create(payload);
@@ -310,7 +344,7 @@ const PatientAppointments = () => {
    // Open reschedule modal
    const openRescheduleModal = (appointment) => {
       setAppointmentToReschedule(appointment);
-      setRescheduleData({ startTime: appointment.startTime });
+      setRescheduleData({ date: '', time: '', startTime: appointment.startTime });
       setIsRescheduleModalOpen(true);
    };
 
@@ -321,14 +355,13 @@ const PatientAppointments = () => {
          setIsLoading(true);
          setError(null);
 
-         await api.appointments.update(appointmentToReschedule.id, {
-            appointmentDate: rescheduleData.startTime
-         });
+         const newDateTime = `${rescheduleData.date}T${rescheduleData.time}:00`;
+         const updated = await api.appointments.reschedule(appointmentToReschedule.id, newDateTime);
 
          setAppointments(
             appointments.map(a =>
                a.id === appointmentToReschedule.id
-                  ? { ...a, startTime: rescheduleData.startTime, date: rescheduleData.startTime, status: 'PENDING_APPROVAL', statusRaw: 'PENDING_APPROVAL' }
+                  ? normalizeAppointment(updated)
                   : a
             )
          );
@@ -397,16 +430,14 @@ const PatientAppointments = () => {
                      </div>
                      <div className="flex items-center gap-1">
                         <Clock className="w-3 h-3 text-gray-400" />
-                        <span>{appt.time} ({appt.duration}m)</span>
+                        <span>{appt.time}</span>
                      </div>
-                     <div className="flex items-center gap-1">
-                        <Building2 className="w-3 h-3 text-gray-400" />
-                        <span className="truncate">{appt.department || 'General'}</span>
-                     </div>
-                     <div className="flex items-center gap-1">
-                        <MapPin className="w-3 h-3 text-gray-400" />
-                        <span className="truncate">{appt.location || appt.room || 'Main Clinic'}</span>
-                     </div>
+                     {appt.reasonForVisit && (
+                        <div className="col-span-2 flex items-center gap-1">
+                           <Building2 className="w-3 h-3 text-gray-400 shrink-0" />
+                           <span className="truncate">{appt.reasonForVisit}</span>
+                        </div>
+                     )}
                   </div>
 
                   {appt.cancellationReason && (
@@ -648,11 +679,11 @@ const PatientAppointments = () => {
                                        <div
                                           key={appt.id}
                                           onClick={(e) => { e.stopPropagation(); openDetailsModal(appt); }}
-                                          className={`text-xs px-1 py-0.5 rounded truncate ${appt.status === 'Confirmed'
+                                          className={`text-xs px-1 py-0.5 rounded truncate ${appt.statusRaw === 'SCHEDULED'
                                              ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
-                                             : appt.status === 'Pending'
+                                             : appt.statusRaw === 'PENDING_APPROVAL'
                                                 ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400'
-                                                : appt.status === 'Completed'
+                                                : appt.statusRaw === 'COMPLETED'
                                                    ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400'
                                                    : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
                                              }`}
@@ -799,7 +830,7 @@ const PatientAppointments = () => {
                            required
                         >
                            <option value="">Choose a department</option>
-                           {mockDepartments.map(dept => (
+                           {departments.map(dept => (
                               <option key={dept.id} value={dept.id}>
                                  {dept.name}
                               </option>
@@ -864,21 +895,30 @@ const PatientAppointments = () => {
                      {requestForm.date && (
                         <div>
                            <label className="block text-xs font-medium text-gray-700 dark:text-slate-300 mb-1">Time Slots *</label>
-                           <div className="grid grid-cols-4 gap-1 max-h-48 overflow-y-auto">
-                              {availableTimeSlots.map(slot => (
-                                 <button
-                                    key={slot}
-                                    type="button"
-                                    onClick={() => setRequestForm({ ...requestForm, time: slot })}
-                                    className={`p-1.5 text-xs border rounded transition-colors ${requestForm.time === slot
-                                       ? 'border-blue-500 bg-blue-500 text-white'
-                                       : 'border-gray-300 dark:border-slate-600 hover:border-blue-300 dark:hover:border-blue-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100'
-                                       }`}
-                                 >
-                                    {slot}
-                                 </button>
-                              ))}
-                           </div>
+                           {isLoadingSlots ? (
+                              <p className="text-xs text-gray-500 dark:text-slate-400 py-2">Loading available times...</p>
+                           ) : availableSlots.length > 0 ? (
+                              <div className="grid grid-cols-4 gap-1 max-h-48 overflow-y-auto">
+                                 {availableSlots.map(slot => {
+                                    const label = String(slot).substring(0, 5);
+                                    return (
+                                       <button
+                                          key={slot}
+                                          type="button"
+                                          onClick={() => setRequestForm({ ...requestForm, time: label })}
+                                          className={`p-1.5 text-xs border rounded transition-colors ${requestForm.time === label
+                                             ? 'border-blue-500 bg-blue-500 text-white'
+                                             : 'border-gray-300 dark:border-slate-600 hover:border-blue-300 dark:hover:border-blue-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100'
+                                             }`}
+                                       >
+                                          {label}
+                                       </button>
+                                    );
+                                 })}
+                              </div>
+                           ) : (
+                              <p className="text-xs text-gray-500 dark:text-slate-400 py-2">No open slots for this doctor on this date. Please choose another date.</p>
+                           )}
                         </div>
                      )}
                   </div>
@@ -1047,8 +1087,18 @@ const PatientAppointments = () => {
                <div className="space-y-4 text-sm text-gray-700 dark:text-slate-300">
                   <div className="flex justify-between items-center mb-2">
                      <h4 className="text-base font-semibold text-gray-800 dark:text-slate-100">{selectedAppointment.type}</h4>
-                     <Badge type={selectedAppointment.status === 'Confirmed' ? 'green' : selectedAppointment.status === 'Pending' ? 'yellow' : 'blue'}>
-                        {selectedAppointment.status}
+                     <Badge
+                        type={
+                           selectedAppointment.statusRaw === 'SCHEDULED'
+                              ? 'green'
+                              : selectedAppointment.statusRaw === 'PENDING_APPROVAL'
+                                 ? 'yellow'
+                                 : selectedAppointment.statusRaw === 'COMPLETED'
+                                    ? 'blue'
+                                    : 'red'
+                        }
+                     >
+                        {(selectedAppointment.statusRaw || '').replaceAll('_', ' ')}
                      </Badge>
                   </div>
 
@@ -1061,20 +1111,26 @@ const PatientAppointments = () => {
                         <p className="text-xs text-gray-500 mb-1">Date & Time</p>
                         <p className="font-medium flex items-center gap-1.5"><Clock className="w-3.5 h-3.5 text-gray-400" /> {format(parseISO(selectedAppointment.date), 'MMM dd, yyyy')} at {selectedAppointment.time}</p>
                      </div>
-                     <div>
-                        <p className="text-xs text-gray-500 mb-1">Department</p>
-                        <p className="font-medium flex items-center gap-1.5"><Building2 className="w-3.5 h-3.5 text-gray-400" /> {selectedAppointment.department}</p>
-                     </div>
-                     <div>
-                        <p className="text-xs text-gray-500 mb-1">Location / Room</p>
-                        <p className="font-medium flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5 text-gray-400" /> {selectedAppointment.location || 'Main Clinic'}, Room {selectedAppointment.room || 'TBD'}</p>
-                     </div>
                   </div>
 
-                  {selectedAppointment.reason && (
+                  {selectedAppointment.reasonForVisit && (
                      <div>
                         <p className="text-xs text-gray-500 mb-1">Reason for Visit</p>
-                        <p className="bg-white dark:bg-slate-800 p-2.5 rounded border border-gray-200 dark:border-slate-700">{selectedAppointment.reason}</p>
+                        <p className="bg-white dark:bg-slate-800 p-2.5 rounded border border-gray-200 dark:border-slate-700">{selectedAppointment.reasonForVisit}</p>
+                     </div>
+                  )}
+
+                  {selectedAppointment.specialRequirements && (
+                     <div>
+                        <p className="text-xs text-gray-500 mb-1">Special Requirements</p>
+                        <p className="bg-white dark:bg-slate-800 p-2.5 rounded border border-gray-200 dark:border-slate-700">{selectedAppointment.specialRequirements}</p>
+                     </div>
+                  )}
+
+                  {selectedAppointment.doctorNotes && (
+                     <div>
+                        <p className="text-xs text-gray-500 mb-1">Doctor's Notes</p>
+                        <p className="bg-white dark:bg-slate-800 p-2.5 rounded border border-gray-200 dark:border-slate-700">{selectedAppointment.doctorNotes}</p>
                      </div>
                   )}
 
@@ -1110,21 +1166,30 @@ const PatientAppointments = () => {
                   {rescheduleData.date && (
                      <div>
                         <label className="block text-xs font-medium text-gray-700 dark:text-slate-300 mb-1">Select New Time *</label>
-                        <div className="grid grid-cols-4 gap-1 max-h-48 overflow-y-auto">
-                           {[...mockTimeSlots.morning, ...mockTimeSlots.afternoon, ...mockTimeSlots.evening].map(slot => (
-                              <button
-                                 key={slot}
-                                 type="button"
-                                 onClick={() => setRescheduleData({ ...rescheduleData, time: slot })}
-                                 className={`p-1.5 text-xs border rounded transition-colors ${rescheduleData.time === slot
-                                    ? 'border-blue-500 bg-blue-500 text-white'
-                                    : 'border-gray-300 dark:border-slate-600 hover:border-blue-300 dark:hover:border-blue-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100'
-                                    }`}
-                              >
-                                 {slot}
-                              </button>
-                           ))}
-                        </div>
+                        {isLoadingRescheduleSlots ? (
+                           <p className="text-xs text-gray-500 dark:text-slate-400 py-2">Loading available times...</p>
+                        ) : rescheduleSlots.length > 0 ? (
+                           <div className="grid grid-cols-4 gap-1 max-h-48 overflow-y-auto">
+                              {rescheduleSlots.map(slot => {
+                                 const label = String(slot).substring(0, 5);
+                                 return (
+                                    <button
+                                       key={slot}
+                                       type="button"
+                                       onClick={() => setRescheduleData({ ...rescheduleData, time: label })}
+                                       className={`p-1.5 text-xs border rounded transition-colors ${rescheduleData.time === label
+                                          ? 'border-blue-500 bg-blue-500 text-white'
+                                          : 'border-gray-300 dark:border-slate-600 hover:border-blue-300 dark:hover:border-blue-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100'
+                                          }`}
+                                    >
+                                       {label}
+                                    </button>
+                                 );
+                              })}
+                           </div>
+                        ) : (
+                           <p className="text-xs text-gray-500 dark:text-slate-400 py-2">No open slots for this doctor on this date. Please choose another date.</p>
+                        )}
                      </div>
                   )}
 

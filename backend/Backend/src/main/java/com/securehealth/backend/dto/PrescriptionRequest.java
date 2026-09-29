@@ -29,4 +29,6 @@ public class PrescriptionRequest {
     private String duration;
 
     private String specialInstructions;
+
+    private String route; // e.g. "Oral", "IV", "IM", "Topical" — defaults to "Oral" if omitted
 }

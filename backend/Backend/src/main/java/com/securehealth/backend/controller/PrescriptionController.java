@@ -37,6 +37,10 @@ public class PrescriptionController {
 
     @GetMapping("/{id}")
     public ResponseEntity<?> getById(@PathVariable Long id, Authentication auth) {
+        // Look up via the repository first only to resolve the owning patient for the
+        // access check; the response itself is always the DTO (never the raw entity,
+        // whose .doctor/.patient associations carry Login with no JSON guard on
+        // passwordHash/otp).
         Prescription rx = prescriptionRepository.findById(id).orElse(null);
         if (rx == null) {
             return ResponseEntity.status(404).body("Prescription not found with id: " + id);
@@ -46,14 +50,14 @@ public class PrescriptionController {
         } catch (RuntimeException e) {
             return ResponseEntity.status(403).body(e.getMessage());
         }
-        return ResponseEntity.ok((Object) rx);
+        return ResponseEntity.ok(prescriptionService.getPrescriptionById(id));
     }
 
     @PostMapping
     @PreAuthorize("hasAuthority('DOCTOR')")
     public ResponseEntity<?> createPrescription(@Valid @RequestBody com.securehealth.backend.dto.PrescriptionRequest request, Authentication auth) {
         try {
-            Prescription newPrescription = prescriptionService.createPrescription(request, auth.getName());
+            PrescriptionDTO newPrescription = prescriptionService.createPrescription(request, auth.getName());
             return ResponseEntity.ok(newPrescription);
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().body(e.getMessage());
@@ -64,6 +68,17 @@ public class PrescriptionController {
     public ResponseEntity<List<PrescriptionDTO>> getActiveByPatient(@PathVariable Long patientId, Authentication auth) {
         accessValidator.validateAccess(patientId, auth, "PRESCRIPTIONS");
         return ResponseEntity.ok(prescriptionService.getActivePrescriptionsByPatient(patientId));
+    }
+
+    @PutMapping("/{id}")
+    @PreAuthorize("hasAuthority('DOCTOR')")
+    public ResponseEntity<?> updatePrescription(@PathVariable Long id,
+            @RequestBody com.securehealth.backend.dto.PrescriptionRequest request, Authentication auth) {
+        try {
+            return ResponseEntity.ok(prescriptionService.updatePrescription(id, request, auth.getName()));
+        } catch (RuntimeException e) {
+            return ResponseEntity.status(400).body(e.getMessage());
+        }
     }
 
     @PutMapping("/{id}/refill")

@@ -24,4 +24,6 @@ public class MedicalRecordRequest {
 
     @NotBlank(message = "Treatment provided is required")
     private String treatmentProvided;
+
+    private String notes;
 }

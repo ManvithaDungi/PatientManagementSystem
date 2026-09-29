@@ -25,11 +25,13 @@ public class Appointment {
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "patient_profile_id", nullable = false)
+    @JsonIgnoreProperties({"hibernateLazyInitializer", "handler", "user"})
     private PatientProfile patient;
 
     // Doctor associated with the appointment
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "doctor_id", nullable = false)
+    @JsonIgnoreProperties({"hibernateLazyInitializer", "handler", "passwordHash", "otp", "otpExpiry"})
     private Login doctor;
 
     @Column(nullable = false)
@@ -43,8 +45,17 @@ public class Appointment {
     @Column(columnDefinition = "TEXT")
     private String reasonForVisit;
 
+    // e.g. "Consultation", "Follow-up", "Check-up", "Emergency" — free text, not enum-constrained
+    private String appointmentType;
+
+    @Column(columnDefinition = "TEXT")
+    private String specialRequirements;
+
     @Column(columnDefinition = "TEXT")
     private String doctorNotes;
+
+    @Column(columnDefinition = "TEXT")
+    private String cancellationReason;
 
     @Column(updatable = false)
     private LocalDateTime createdAt = LocalDateTime.now();

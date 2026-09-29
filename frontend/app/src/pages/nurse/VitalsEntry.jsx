@@ -59,7 +59,7 @@ const VitalsEntry = () => {
                             temp: record.temperature || 0,
                             spo2: record.oxygenSaturation || 0,
                             rr: record.respiratoryRate || 0,
-                            nurseName: record.nurse?.username || '',
+                            nurseName: record.nurseEmail || '',
                             recordedAt: record.recordedAt,
                         };
                     }));

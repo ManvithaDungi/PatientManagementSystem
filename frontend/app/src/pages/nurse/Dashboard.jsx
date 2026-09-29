@@ -1,19 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
    Activity,
    AlertTriangle,
    Calendar,
-   Check,
    CheckSquare,
-   ChevronRight,
    ClipboardList,
    Clock,
-   Edit3,
-   Info,
    MessageSquare,
    Pill,
-   Plus,
-   Trash2,
    Users,
    X,
 } from 'lucide-react';
@@ -36,8 +31,6 @@ const shiftTypeStyles = {
    },
 };
 
-
-
 const taskPriorityMap = {
    critical: { dot: 'bg-red-500', label: 'Critical' },
    high: { dot: 'bg-orange-500', label: 'High' },
@@ -50,63 +43,8 @@ const taskCategoryMap = {
    assessment: 'Assessment',
    care: 'Care',
    documentation: 'Documentation',
+   vitals: 'Vitals',
 };
-
-
-
-const quickStatConfig = (stats) => [
-   {
-      id: 'assigned',
-      label: 'patients assigned today',
-      value: stats.assignedPatients,
-      icon: Users,
-      border: 'border-brand-medium',
-      badge: null,
-      onClick: () => { },
-      description: null,
-   },
-   {
-      id: 'vitals',
-      label: 'vitals checks due',
-      value: stats.pendingVitals,
-      icon: Activity,
-      border: stats.overdueVitals > 0 ? 'border-orange-500' : 'border-brand-medium',
-      badge:
-         stats.overdueVitals > 0
-            ? { text: `${stats.overdueVitals} overdue`, classes: 'text-red-600 font-medium' }
-            : null,
-      onClick: () => { },
-      description: null,
-   },
-   {
-      id: 'medications',
-      label: 'medications pending',
-      value: stats.medicationsDue,
-      icon: Pill,
-      border:
-         stats.overdueMedications > 0
-            ? 'border-red-500'
-            : stats.nextMedicationIn <= 30
-               ? 'border-yellow-400'
-               : 'border-brand-medium',
-      badge:
-         stats.overdueMedications > 0
-            ? { text: `${stats.overdueMedications} overdue`, classes: 'text-red-600 font-medium' }
-            : { text: `Next in ${stats.nextMedicationIn} min`, classes: 'text-amber-600 font-medium' },
-      onClick: () => { },
-      description: null,
-   },
-   {
-      id: 'tasks',
-      label: 'tasks remaining',
-      value: stats.pendingTasks,
-      icon: CheckSquare,
-      border: 'border-green-500',
-      badge: { text: `${stats.highPriorityTasks} high priority`, classes: 'text-orange-500 font-medium' },
-      onClick: () => { },
-      description: null,
-   },
-];
 
 const toastColors = {
    success: 'bg-green-600 text-white',
@@ -116,80 +54,65 @@ const toastColors = {
 
 const NurseDashboard = () => {
    const { user } = useAuth();
-   const [overview, setOverview] = useState({
-      scientist: {
-         date: new Date().toISOString().split('T')[0]
-      },
-      stats: {
-         assignedPatients: 0,
-         pendingVitals: 0,
-         overdueVitals: 0,
-         medicationsDue: 0,
-         overdueMedications: 0,
-         nextMedicationIn: 0,
-         pendingTasks: 0,
-         highPriorityTasks: 0,
-      },
-      nurse: {
-         unit: 'ICU'
-      },
-      shift: {
-         date: new Date().toISOString().split('T')[0],
-         startTime: '07:00',
-         endTime: '19:00'
-      },
-      handover: {
-         from: '',
-         to: ''
-      },
-      handoverNotes: {
-         fromPreviousShift: [],
-         forNextShift: {
-            generalNotes: '',
-            patientNotes: [],
-            lastSaved: null
-         }
-      },
-      tasks: []
+   const navigate = useNavigate();
+
+   const [stats, setStats] = useState({
+      assignedPatients: 0,
+      pendingVitals: 0,
+      overdueVitals: 0,
+      medicationsDue: 0,
+      overdueMedications: 0,
+      nextMedicationIn: 0,
+      pendingTasks: 0,
+      highPriorityTasks: 0,
+   });
+   const [tasks, setTasks] = useState([]);
+   const [handoverNotes, setHandoverNotes] = useState({ fromPreviousShift: [], forNextShift: [] });
+   const [shift] = useState({
+      date: new Date().toISOString().split('T')[0],
+      startTime: '07:00',
+      endTime: '19:00',
    });
    const [currentTime, setCurrentTime] = useState(new Date());
-
-   const nurseName = user?.fullName || user?.full_name || 'Nurse';
-   const nurseUnit = user?.department || overview.nurse?.unit || 'ICU';
-
-   const [handoverTab, setHandoverTab] = useState('from');
-   const [expandedCompleted, setExpandedCompleted] = useState(false);
+   const [isLoading, setIsLoading] = useState(true);
+   const [loadError, setLoadError] = useState(null);
    const [toast, setToast] = useState(null);
 
+   const nurseName = user?.fullName || user?.full_name || 'Nurse';
+   const nurseUnit = user?.department || 'Unit not set';
 
    useEffect(() => {
       const interval = setInterval(() => setCurrentTime(new Date()), 60_000);
       return () => clearInterval(interval);
    }, []);
 
-   useEffect(() => {
-      const fetchDashboard = async () => {
-         try {
-            const data = await api.nurse.getDashboardOverview();
-            if (data) {
-               // Backend returns flat stats map: {assignedPatients, pendingVitals, overdueVitals, ...}
-               setOverview(prev => ({
-                  ...prev,
-                  stats: data || prev.stats,
-               }));
-            }
-         } catch (err) {
-            console.error('Failed to load dashboard overview', err);
-         }
-      };
-      
-      fetchDashboard();
-      
-      const refreshInterval = setInterval(() => {
-         fetchDashboard();
-      }, 120_000);
+   const fetchDashboard = async () => {
+      setLoadError(null);
+      try {
+         const [statsData, tasksData, handoverData] = await Promise.all([
+            api.nurse.getDashboardOverview(),
+            api.nurse.getTasks(),
+            api.nurse.getHandoverNotes(),
+         ]);
+         setStats(statsData || {});
+         setTasks(Array.isArray(tasksData) ? tasksData : []);
+         setHandoverNotes({
+            fromPreviousShift: handoverData?.fromPreviousShift || [],
+            forNextShift: handoverData?.forNextShift || [],
+         });
+      } catch (err) {
+         console.error('Failed to load nurse dashboard', err);
+         setLoadError('Unable to load your dashboard right now. Please try again.');
+      } finally {
+         setIsLoading(false);
+      }
+   };
 
+   useEffect(() => {
+      fetchDashboard();
+      const refreshInterval = setInterval(fetchDashboard, 120_000);
       return () => clearInterval(refreshInterval);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
    }, []);
 
    useEffect(() => {
@@ -198,7 +121,54 @@ const NurseDashboard = () => {
       return () => clearTimeout(timer);
    }, [toast]);
 
-   const stats = useMemo(() => quickStatConfig(overview.stats), [overview.stats]);
+   const quickStats = useMemo(() => [
+      {
+         id: 'assigned',
+         label: 'patients assigned today',
+         value: stats.assignedPatients ?? 0,
+         icon: Users,
+         border: 'border-brand-medium',
+         badge: null,
+         onClick: () => navigate('/dashboard/nurse/patients'),
+      },
+      {
+         id: 'vitals',
+         label: 'vitals checks due',
+         value: stats.pendingVitals ?? 0,
+         icon: Activity,
+         border: (stats.overdueVitals ?? 0) > 0 ? 'border-orange-500' : 'border-brand-medium',
+         badge: (stats.overdueVitals ?? 0) > 0
+            ? { text: `${stats.overdueVitals} overdue`, classes: 'text-red-600 font-medium' }
+            : null,
+         onClick: () => navigate('/dashboard/nurse/vitals'),
+      },
+      {
+         id: 'medications',
+         label: 'medications pending',
+         value: stats.medicationsDue ?? 0,
+         icon: Pill,
+         border: (stats.overdueMedications ?? 0) > 0
+            ? 'border-red-500'
+            : (stats.nextMedicationIn ?? 0) >= 0 && stats.nextMedicationIn <= 30
+               ? 'border-yellow-400'
+               : 'border-brand-medium',
+         badge: (stats.overdueMedications ?? 0) > 0
+            ? { text: `${stats.overdueMedications} overdue`, classes: 'text-red-600 font-medium' }
+            : stats.nextMedicationIn >= 0
+               ? { text: `Next in ${stats.nextMedicationIn} min`, classes: 'text-amber-600 font-medium' }
+               : null,
+         onClick: () => navigate('/dashboard/nurse/patients'),
+      },
+      {
+         id: 'tasks',
+         label: 'tasks remaining',
+         value: stats.pendingTasks ?? 0,
+         icon: CheckSquare,
+         border: 'border-green-500',
+         badge: { text: `${stats.highPriorityTasks ?? 0} high priority`, classes: 'text-orange-500 font-medium' },
+         onClick: () => navigate('/dashboard/nurse/tasks'),
+      },
+   ], [stats, navigate]);
 
    const greeting = useMemo(() => {
       const hour = currentTime.getHours();
@@ -219,9 +189,8 @@ const NurseDashboard = () => {
       [currentTime]);
 
    const shiftProgress = useMemo(() => {
-      const shiftDate = overview.shift.date;
-      const start = new Date(`${shiftDate}T${overview.shift.startTime}:00`);
-      const end = new Date(`${shiftDate}T${overview.shift.endTime}:00`);
+      const start = new Date(`${shift.date}T${shift.startTime}:00`);
+      const end = new Date(`${shift.date}T${shift.endTime}:00`);
 
       if (end < start) {
          end.setDate(end.getDate() + 1);
@@ -239,129 +208,36 @@ const NurseDashboard = () => {
          percentage,
          remainingLabel: `${remainingHours} hours, ${remainingMinutes.toString().padStart(2, '0')} minutes remaining`,
       };
-   }, [currentTime, overview.shift.date, overview.shift.endTime, overview.shift.startTime]);
+   }, [currentTime, shift.date, shift.endTime, shift.startTime]);
 
+   const visibleTasks = tasks
+      .filter((task) => !task.completed)
+      .sort((a, b) => {
+         const priorityOrder = ['critical', 'high', 'medium', 'low'];
+         return priorityOrder.indexOf(a.priority) - priorityOrder.indexOf(b.priority);
+      });
+   const overdueTaskCount = tasks.filter((task) => task.status === 'overdue').length;
 
-
-   const overdueTasks = overview.tasks.filter((task) => task.status === 'overdue');
-   const completedTasks = overview.tasks.filter((task) => task.completed);
-   const visibleTasks = overview.tasks.filter((task) => !task.completed).sort((a, b) => {
-      const priorityOrder = ['critical', 'high', 'medium', 'low'];
-      return priorityOrder.indexOf(a.priority) - priorityOrder.indexOf(b.priority);
-   });
-
-
-
-
-
-   const handleTaskToggle = (taskId) => {
-      setOverview((prev) => ({
-         ...prev,
-         tasks: prev.tasks.map((task) =>
-            task.id === taskId
-               ? {
-                  ...task,
-                  completed: !task.completed,
-                  previousStatus: !task.completed ? task.status : task.previousStatus,
-                  status: !task.completed ? 'completed' : task.previousStatus || task.status,
-               }
-               : task,
-         ),
-      }));
-      // TODO updateTaskStatus(taskId)
+   const handleTaskToggle = async (taskId) => {
+      // Optimistic update, reverted on failure
+      setTasks((prev) => prev.map((task) =>
+         task.id === taskId ? { ...task, completed: !task.completed } : task,
+      ));
+      try {
+         const result = await api.nurse.toggleTaskStatus(taskId);
+         if (result?.task) {
+            setTasks((prev) => prev.map((task) => (task.id === taskId ? result.task : task)));
+         }
+      } catch (err) {
+         console.error('Failed to toggle task status', err);
+         setTasks((prev) => prev.map((task) =>
+            task.id === taskId ? { ...task, completed: !task.completed } : task,
+         ));
+         setToast({ type: 'error', message: 'Failed to update task. Please try again.' });
+      }
    };
 
-   const handleMarkNoteRead = (noteId) => {
-      setOverview((prev) => ({
-         ...prev,
-         handoverNotes: {
-            ...prev.handoverNotes,
-            fromPreviousShift: prev.handoverNotes.fromPreviousShift.map((note) =>
-               note.id === noteId ? { ...note, read: !note.read } : note,
-            ),
-         },
-      }));
-      // TODO markNoteAsRead(noteId)
-   };
-
-   const handleAddPatientNote = () => {
-      setOverview((prev) => ({
-         ...prev,
-         handoverNotes: {
-            ...prev.handoverNotes,
-            forNextShift: {
-               ...prev.handoverNotes.forNextShift,
-               patientNotes: [
-                  ...prev.handoverNotes.forNextShift.patientNotes,
-                  {
-                     id: Date.now(),
-                     patientId: '',
-                     note: '',
-                     priority: 'normal',
-                  },
-               ],
-            },
-         },
-      }));
-   };
-
-   const handleUpdatePatientNote = (id, payload) => {
-      setOverview((prev) => ({
-         ...prev,
-         handoverNotes: {
-            ...prev.handoverNotes,
-            forNextShift: {
-               ...prev.handoverNotes.forNextShift,
-               patientNotes: prev.handoverNotes.forNextShift.patientNotes.map((note) =>
-                  note.id === id ? { ...note, ...payload } : note,
-               ),
-            },
-         },
-      }));
-   };
-
-   const handleDeletePatientNote = (id) => {
-      setOverview((prev) => ({
-         ...prev,
-         handoverNotes: {
-            ...prev.handoverNotes,
-            forNextShift: {
-               ...prev.handoverNotes.forNextShift,
-               patientNotes: prev.handoverNotes.forNextShift.patientNotes.filter((note) => note.id !== id),
-            },
-         },
-      }));
-   };
-
-   const handleSaveHandover = () => {
-      setOverview((prev) => ({
-         ...prev,
-         handoverNotes: {
-            ...prev.handoverNotes,
-            forNextShift: {
-               ...prev.handoverNotes.forNextShift,
-               lastSaved: new Date().toISOString(),
-            },
-         },
-      }));
-      // TODO saveHandoverNotes
-   };
-
-   const handleMarkAllNotesRead = () => {
-      setOverview((prev) => ({
-         ...prev,
-         handoverNotes: {
-            ...prev.handoverNotes,
-            fromPreviousShift: prev.handoverNotes.fromPreviousShift.map((note) => ({
-               ...note,
-               read: true,
-            })),
-         },
-      }));
-      // TODO mark all as read
-   };
-
-   const shiftStyles = shiftTypeStyles[overview.shift.type] || shiftTypeStyles.day;
+   const shiftStyles = shiftTypeStyles.day;
 
    return (
       <div className="space-y-4" aria-label="Nurse dashboard overview">
@@ -385,7 +261,7 @@ const NurseDashboard = () => {
                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold ${shiftStyles.classes}`}>
                               {shiftStyles.label}
                            </span>
-                           <p className="text-sm font-semibold text-gray-900 dark:text-slate-100 mt-1.5">{overview.shift.startTime} - {overview.shift.endTime}</p>
+                           <p className="text-sm font-semibold text-gray-900 dark:text-slate-100 mt-1.5">{shift.startTime} - {shift.endTime}</p>
                         </div>
                         <Calendar className="w-8 h-8 text-brand-medium bg-brand-light rounded-lg p-1.5" aria-hidden="true" />
                      </div>
@@ -403,9 +279,10 @@ const NurseDashboard = () => {
 
                   <button
                      type="button"
-                     className="min-w-[160px] md:min-w-[180px] rounded-lg border-2 border-red-200 bg-red-50 text-red-600 font-semibold shadow-soft hover:shadow-md hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-400 transition-all duration-200 flex items-center justify-center gap-1.5 px-3 py-2.5 text-sm"
-                     aria-label="Call code team"
-                     onClick={() => alert('Escalation protocol initiated. (placeholder)')}
+                     className="min-w-[160px] md:min-w-[180px] rounded-lg border-2 border-gray-200 dark:border-slate-600 bg-gray-50 dark:bg-slate-700 text-gray-400 dark:text-slate-500 font-semibold shadow-soft cursor-not-allowed flex items-center justify-center gap-1.5 px-3 py-2.5 text-sm"
+                     aria-label="Call code team (not yet implemented)"
+                     title="Emergency escalation is not yet wired to a paging/notification system"
+                     disabled
                   >
                      <AlertTriangle className="w-4 h-4" aria-hidden="true" />
                      Call Code Team
@@ -435,15 +312,22 @@ const NurseDashboard = () => {
             </div>
          )}
 
+         {loadError && (
+            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 text-sm rounded-lg p-3 flex items-center justify-between">
+               <span>{loadError}</span>
+               <Button variant="outline" className="text-xs" onClick={fetchDashboard}>Retry</Button>
+            </div>
+         )}
+
          <section aria-labelledby="quick-stats" className="space-y-2">
             <div className="flex items-center justify-between">
                <h2 id="quick-stats" className="text-sm font-bold text-gray-900 dark:text-slate-100">Shift Snapshot</h2>
-               <Button variant="link" className="text-brand-medium text-xs font-semibold" aria-label="Refresh dashboard snapshot">
+               <Button variant="link" className="text-brand-medium text-xs font-semibold" onClick={fetchDashboard} aria-label="Refresh dashboard snapshot">
                   Refresh Data
                </Button>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
-               {stats.map((stat) => {
+               {quickStats.map((stat) => {
                   const Icon = stat.icon;
                   return (
                      <Card
@@ -463,9 +347,9 @@ const NurseDashboard = () => {
                      >
                         <div className="flex items-start justify-between">
                            <div>
-                              <p className="text-xs text-gray-500 dark:text-slate-400 font-medium">{stat.label}</p>
-                              <p className="text-xl font-bold text-gray-900 dark:text-slate-100 mt-1">{stat.value}</p>
-                              {stat.badge && <p className={`text-xs mt-1.5 ${stat.badge.classes}`}>{stat.badge.text}</p>}
+                              <p className="text-xs text-gray-500 dark:text-slate-400 font-medium">{isLoading ? '…' : stat.label}</p>
+                              <p className="text-xl font-bold text-gray-900 dark:text-slate-100 mt-1">{isLoading ? '—' : stat.value}</p>
+                              {!isLoading && stat.badge && <p className={`text-xs mt-1.5 ${stat.badge.classes}`}>{stat.badge.text}</p>}
                            </div>
                            <div className="w-8 h-8 bg-brand-light rounded-lg flex items-center justify-center text-brand-medium">
                               <Icon className="w-4 h-4" aria-hidden="true" />
@@ -477,14 +361,12 @@ const NurseDashboard = () => {
             </div>
          </section>
 
-
-
          <section aria-labelledby="tasks-reminders" className="space-y-3">
             <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2">
                <div className="flex items-center gap-2">
                   <ClipboardList className="w-5 h-5 text-brand-medium" aria-hidden="true" />
                   <h2 id="tasks-reminders" className="text-sm font-bold text-gray-900 dark:text-slate-100">Tasks &amp; Reminders</h2>
-                  <span className="text-xs text-gray-500 dark:text-slate-400">{overview.stats.pendingTasks} active</span>
+                  <span className="text-xs text-gray-500 dark:text-slate-400">{stats.pendingTasks ?? 0} active</span>
                </div>
                <div className="flex items-center gap-2">
                   <div className="flex gap-1.5 text-xs text-gray-500 dark:text-slate-400">
@@ -496,348 +378,93 @@ const NurseDashboard = () => {
                </div>
             </div>
 
-            {overdueTasks.length > 0 && (
-               <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 px-3 py-2 rounded-lg flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                     <AlertTriangle className="w-4 h-4" aria-hidden="true" />
-                     <p className="text-xs font-semibold">{overdueTasks.length} overdue task(s) need immediate attention</p>
-                  </div>
-
+            {overdueTaskCount > 0 && (
+               <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 px-3 py-2 rounded-lg flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4" aria-hidden="true" />
+                  <p className="text-xs font-semibold">{overdueTaskCount} overdue task(s) need immediate attention</p>
                </div>
             )}
 
             <div className="space-y-2">
-               {visibleTasks.slice(0, 6).map((task) => {
-                  const priority = taskPriorityMap[task.priority] || taskPriorityMap.medium;
-                  const categoryLabel = taskCategoryMap[task.category] || 'Task';
-                  const isOverdue = task.status === 'overdue';
-                  const statusColor =
-                     task.status === 'completed'
-                        ? 'text-green-600'
-                        : task.status === 'due-soon'
-                           ? 'text-amber-600'
-                           : task.status === 'upcoming'
-                              ? 'text-brand-medium'
-                              : 'text-red-600';
+               {isLoading ? (
+                  <p className="text-xs text-gray-500 dark:text-slate-400 py-3">Loading tasks...</p>
+               ) : visibleTasks.length > 0 ? (
+                  visibleTasks.slice(0, 6).map((task) => {
+                     const priority = taskPriorityMap[task.priority] || taskPriorityMap.medium;
+                     const categoryLabel = taskCategoryMap[task.category] || 'Task';
+                     const isOverdue = task.status === 'overdue';
 
-                  return (
-                     <Card key={task.id} className={`p-3 shadow-soft border ${isOverdue ? 'border-red-200 dark:border-red-800 bg-red-50/40 dark:bg-red-900/10' : 'border-gray-100 dark:border-slate-700'} dark:bg-slate-800`}>
-                        <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-3">
-                           <label className="flex items-center gap-2 cursor-pointer select-none">
-                              <input
-                                 type="checkbox"
-                                 className="form-checkbox w-4 h-4 rounded border-gray-300 dark:border-slate-600 text-brand-medium focus:ring-brand-medium dark:bg-slate-700"
-                                 checked={task.completed}
-                                 onChange={() => handleTaskToggle(task.id)}
-                                 aria-label={`Mark task ${task.title} as complete`}
-                              />
-                              <span className={`w-2 h-2 rounded-full ${priority.dot}`} aria-hidden="true" />
-                           </label>
+                     return (
+                        <Card key={task.id} className={`p-3 shadow-soft border ${isOverdue ? 'border-red-200 dark:border-red-800 bg-red-50/40 dark:bg-red-900/10' : 'border-gray-100 dark:border-slate-700'} dark:bg-slate-800`}>
+                           <div className="flex flex-col md:flex-row md:items-center gap-2 md:gap-3">
+                              <label className="flex items-center gap-2 cursor-pointer select-none">
+                                 <input
+                                    type="checkbox"
+                                    className="form-checkbox w-4 h-4 rounded border-gray-300 dark:border-slate-600 text-brand-medium focus:ring-brand-medium dark:bg-slate-700"
+                                    checked={task.completed}
+                                    onChange={() => handleTaskToggle(task.id)}
+                                    aria-label={`Mark task ${task.title} as complete`}
+                                 />
+                                 <span className={`w-2 h-2 rounded-full ${priority.dot}`} aria-hidden="true" />
+                              </label>
 
-                           <div className="flex-1 space-y-1">
-                              <div className="flex flex-wrap items-center gap-1.5">
-                                 <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100">{task.title}</h3>
-                                 <Badge type={isOverdue ? 'red' : 'blue'}>{categoryLabel}</Badge>
-                                 {isOverdue && <span className="text-xs font-semibold uppercase text-red-600 dark:text-red-400 bg-red-100 dark:bg-red-900/30 px-1.5 py-0.5 rounded-full">Overdue</span>}
+                              <div className="flex-1 space-y-1">
+                                 <div className="flex flex-wrap items-center gap-1.5">
+                                    <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100">{task.title}</h3>
+                                    <Badge type={isOverdue ? 'red' : 'blue'}>{categoryLabel}</Badge>
+                                    {isOverdue && <span className="text-xs font-semibold uppercase text-red-600 dark:text-red-400 bg-red-100 dark:bg-red-900/30 px-1.5 py-0.5 rounded-full">Overdue</span>}
+                                 </div>
+                                 {task.dueTime && (
+                                    <p className="text-xs font-semibold text-gray-500 dark:text-slate-400">
+                                       Due: {new Date(task.dueTime).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                                    </p>
+                                 )}
                               </div>
-                              {task.patient && (
-                                 <p className="text-xs text-gray-600 dark:text-slate-400">for {task.patient.name}, Room {task.patient.room}</p>
-                              )}
-                              <p className={`text-xs font-semibold ${statusColor}`}>
-                                 Due: {new Date(task.dueTime).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
-                                 {task.status === 'overdue' && task.overdueBy ? ` • Overdue ${task.overdueBy} min` : ''}
-                              </p>
                            </div>
-
-                           <div className="flex items-center gap-1.5 self-start">
-                              <button type="button" className="p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-500 dark:text-slate-400" aria-label="View task info">
-                                 <Info className="w-3.5 h-3.5" />
-                              </button>
-                              <button type="button" className="p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-500 dark:text-slate-400" aria-label="Edit task">
-                                 <Edit3 className="w-3.5 h-3.5" />
-                              </button>
-                              <button type="button" className="p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-500 dark:text-slate-400" aria-label="Delete task">
-                                 <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                           </div>
-                        </div>
-                     </Card>
-                  );
-               })}
-
-               {visibleTasks.length > 6 && (
-                  <Button variant="outline" className="w-full text-xs" onClick={() => alert('Navigate to full task list (placeholder)')}>
-                     View All Tasks
-                  </Button>
+                        </Card>
+                     );
+                  })
+               ) : (
+                  <p className="text-xs text-gray-500 dark:text-slate-400 py-3 text-center">No pending tasks.</p>
                )}
-            </div>
 
-            <div className="bg-white dark:bg-slate-800 border border-gray-100 dark:border-slate-700 rounded-lg p-3 shadow-soft">
-               <h3 className="text-xs font-semibold text-gray-700 dark:text-slate-300 uppercase tracking-wide">Task Categories</h3>
-               <dl className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-2 text-xs text-gray-600 dark:text-slate-400">
-                  <div>
-                     <dt className="font-semibold text-gray-800 dark:text-slate-200">Medication</dt>
-                     <dd>3</dd>
-                  </div>
-                  <div>
-                     <dt className="font-semibold text-gray-800 dark:text-slate-200">Assessments</dt>
-                     <dd>2</dd>
-                  </div>
-                  <div>
-                     <dt className="font-semibold text-gray-800 dark:text-slate-200">Care Activities</dt>
-                     <dd>1</dd>
-                  </div>
-                  <div>
-                     <dt className="font-semibold text-gray-800 dark:text-slate-200">Documentation</dt>
-                     <dd>1</dd>
-                  </div>
-               </dl>
-
-               <div className="mt-3">
-                  <button
-                     type="button"
-                     className="text-xs text-brand-medium font-semibold flex items-center gap-1.5"
-                     onClick={() => setExpandedCompleted((prev) => !prev)}
-                     aria-expanded={expandedCompleted}
-                  >
-                     {expandedCompleted ? 'Hide Completed (12)' : 'Show Completed (12)'}
-                     <ChevronRight className={`w-3.5 h-3.5 transition-transform ${expandedCompleted ? 'rotate-90' : ''}`} aria-hidden="true" />
-                  </button>
-                  {expandedCompleted && (
-                     <ul className="mt-2 space-y-1 text-xs text-gray-500 dark:text-slate-400">
-                        {(completedTasks.length > 0 ? completedTasks : [{ id: 'stub', title: 'Example completed task' }]).map((task) => (
-                           <li key={task.id} className="flex items-center gap-1.5">
-                              <Check className="w-3.5 h-3.5 text-green-500" aria-hidden="true" />
-                              <span className="line-through">{task.title || 'Task completed'}</span>
-                           </li>
-                        ))}
-                     </ul>
-                  )}
-               </div>
+               <Button variant="outline" className="w-full text-xs" onClick={() => navigate('/dashboard/nurse/tasks')}>
+                  View All Tasks
+               </Button>
             </div>
          </section>
 
          <section aria-labelledby="shift-handover" className="space-y-3">
-            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2">
+            <div className="flex items-center justify-between gap-2">
                <div className="flex items-center gap-2">
                   <MessageSquare className="w-5 h-5 text-brand-medium" aria-hidden="true" />
                   <h2 id="shift-handover" className="text-sm font-bold text-gray-900 dark:text-slate-100">Shift Handover</h2>
                </div>
-               <div className="inline-flex rounded-full border border-gray-200 dark:border-slate-600 overflow-hidden" role="tablist">
-                  <button
-                     type="button"
-                     role="tab"
-                     className={`px-3 py-1.5 text-xs font-semibold transition ${handoverTab === 'from' ? 'bg-brand-medium text-white' : 'text-gray-600 dark:text-slate-400 hover:bg-gray-50 dark:hover:bg-slate-700'}`}
-                     onClick={() => setHandoverTab('from')}
-                     aria-selected={handoverTab === 'from'}
-                  >
-                     From Previous Shift
-                  </button>
-                  <button
-                     type="button"
-                     role="tab"
-                     className={`px-3 py-1.5 text-xs font-semibold transition ${handoverTab === 'to' ? 'bg-brand-medium text-white' : 'text-gray-600 dark:text-slate-400 hover:bg-gray-50 dark:hover:bg-slate-700'}`}
-                     onClick={() => setHandoverTab('to')}
-                     aria-selected={handoverTab === 'to'}
-                  >
-                     For Next Shift
-                  </button>
-               </div>
+               <Button variant="link" className="text-brand-medium text-xs font-semibold" onClick={() => navigate('/dashboard/nurse/shift-notes')}>
+                  View / Add Notes
+               </Button>
             </div>
 
-            {handoverTab === 'from' ? (
-               <Card className="p-3 space-y-3 border border-gray-100 dark:border-slate-700 shadow-soft dark:bg-slate-800" role="tabpanel">
-                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-                     <div>
-                        <p className="text-xs text-gray-500 dark:text-slate-400">Last updated: Feb 9, 7:00 AM by Nurse Sarah Chen</p>
-                        <p className="text-xs font-semibold text-brand-medium">3 unread notes</p>
-                     </div>
-                     <div className="flex gap-2">
-                        <Button variant="outline" className="border-brand-medium text-brand-medium text-xs py-1" onClick={handleMarkAllNotesRead}>
-                           Mark All as Read
-                        </Button>
-                        <Button className="bg-brand-medium text-white text-xs py-1">View History</Button>
-                     </div>
+            <Card className="p-3 space-y-2 border border-gray-100 dark:border-slate-700 shadow-soft dark:bg-slate-800">
+               {isLoading ? (
+                  <p className="text-xs text-gray-500 dark:text-slate-400 py-2">Loading handover notes...</p>
+               ) : handoverNotes.fromPreviousShift.length === 0 ? (
+                  <div className="text-center text-gray-500 dark:text-slate-400 py-4">
+                     <CheckSquare className="w-6 h-6 mx-auto text-gray-300 dark:text-slate-600 mb-1.5" aria-hidden="true" />
+                     <p className="text-xs">No handover notes from the previous shift.</p>
                   </div>
-
-                  <div className="space-y-2">
-                     {overview.handoverNotes.fromPreviousShift.map((note) => {
-                        const isUrgent = note.priority === 'urgent';
-                        const isRead = note.read;
-
-                        return (
-                           <div
-                              key={note.id}
-                              className={`rounded-lg border ${isUrgent ? 'border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-900/20' : 'border-blue-100 dark:border-blue-800 bg-blue-50/40 dark:bg-blue-900/20'} p-3 flex flex-col gap-2 ${isRead ? 'opacity-75' : ''}`}
-                           >
-                              <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-2">
-                                 <div className="space-y-0.5">
-                                    <div className="flex items-center gap-1.5 text-xs uppercase font-semibold tracking-wide">
-                                       <span className={`px-2 py-0.5 rounded-full ${isUrgent ? 'bg-red-500 text-white' : 'bg-blue-500 text-white'}`}>
-                                          {isUrgent ? 'Urgent' : 'Info'}
-                                       </span>
-                                       <span className="px-2 py-0.5 rounded-full bg-white/80 dark:bg-slate-700 text-gray-700 dark:text-slate-300">
-                                          {note.type === 'general' ? 'General' : 'Patient Specific'}
-                                       </span>
-                                    </div>
-                                    {note.patient && (
-                                       <p className="text-xs font-semibold text-gray-800 dark:text-slate-200">
-                                          {note.patient.name}, Room {note.patient.room}
-                                       </p>
-                                    )}
-                                 </div>
-                                 <div className="text-xs text-gray-500 dark:text-slate-400 text-right">
-                                    <p>{new Date(note.timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</p>
-                                    <p>{note.author}</p>
-                                 </div>
-                              </div>
-                              <p className="text-xs text-gray-700 dark:text-slate-300 leading-relaxed">{note.content}</p>
-                              <label className="flex items-center gap-1.5 text-xs font-medium text-gray-600 dark:text-slate-400 cursor-pointer">
-                                 <input
-                                    type="checkbox"
-                                    checked={note.read}
-                                    onChange={() => handleMarkNoteRead(note.id)}
-                                    className="form-checkbox w-3.5 h-3.5 text-brand-medium dark:bg-slate-700 dark:border-slate-600"
-                                 />
-                                 Mark as read
-                              </label>
-                           </div>
-                        );
-                     })}
-                  </div>
-
-                  {overview.handoverNotes.fromPreviousShift.length === 0 && (
-                     <div className="text-center text-gray-500 dark:text-slate-400 py-6">
-                        <CheckSquare className="w-8 h-8 mx-auto text-gray-300 dark:text-slate-600 mb-2" aria-hidden="true" />
-                        No handover notes from previous shift
-                     </div>
-                  )}
-               </Card>
-            ) : (
-               <Card className="p-3 space-y-3 border border-gray-100 dark:border-slate-700 shadow-soft dark:bg-slate-800" role="tabpanel">
-                  <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2">
-                     <div>
-                        <h3 className="text-sm font-bold text-gray-900 dark:text-slate-100">Notes for Next Shift</h3>
-                        <p className="text-xs text-gray-500 dark:text-slate-400">Auto-save every 30 seconds</p>
-                        {overview.handoverNotes.forNextShift.lastSaved && (
-                           <p className="text-xs text-gray-400 dark:text-slate-500 mt-0.5">
-                              Last saved: {new Date(overview.handoverNotes.forNextShift.lastSaved).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
-                           </p>
-                        )}
-                     </div>
-                     <div className="flex gap-2">
-                        <Button variant="outline" className="border-brand-medium text-brand-medium text-xs py-1" onClick={handleSaveHandover}>
-                           Save Draft
-                        </Button>
-                        <Button className="bg-brand-medium text-white text-xs py-1" disabled>
-                           Submit Handover
-                        </Button>
-                     </div>
-                  </div>
-
-                  <div className="space-y-2">
-                     <div>
-                        <label htmlFor="general-notes" className="block text-xs font-medium text-gray-700 dark:text-slate-300 mb-1">
-                           General Notes
-                        </label>
-                        <textarea
-                           id="general-notes"
-                           rows={3}
-                           className="w-full rounded-lg border border-gray-200 dark:border-slate-600 p-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-medium bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 dark:placeholder-slate-400"
-                           placeholder="Enter general shift notes..."
-                           value={overview.handoverNotes.forNextShift.generalNotes}
-                           onChange={(event) => setOverview((prev) => ({
-                              ...prev,
-                              handoverNotes: {
-                                 ...prev.handoverNotes,
-                                 forNextShift: {
-                                    ...prev.handoverNotes.forNextShift,
-                                    generalNotes: event.target.value,
-                                 },
-                              },
-                           }))}
-                           maxLength={2000}
-                        />
-                        <div className="flex justify-between text-xs text-gray-400 dark:text-slate-500 mt-1">
-                           <span>Quick templates: Staffing changes · Equipment issues · Unit updates</span>
-                           <span>{overview.handoverNotes.forNextShift.generalNotes.length}/2000</span>
+               ) : (
+                  handoverNotes.fromPreviousShift.slice(0, 3).map((note) => (
+                     <div key={note.id} className="rounded-lg border border-blue-100 dark:border-blue-800 bg-blue-50/40 dark:bg-blue-900/20 p-3">
+                        <div className="flex items-center justify-between text-xs text-gray-500 dark:text-slate-400 mb-1">
+                           <span>{note.author?.email || 'Nurse'}</span>
+                           <span>{note.timestamp ? new Date(note.timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : ''}</span>
                         </div>
+                        <p className="text-xs text-gray-700 dark:text-slate-300 leading-relaxed">{note.content}</p>
                      </div>
-
-                     <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                           <h3 className="text-xs font-semibold text-gray-700 dark:text-slate-300 uppercase tracking-wide">Patient-Specific Notes</h3>
-                           <Button variant="outline" className="text-xs flex items-center gap-1.5" onClick={handleAddPatientNote}>
-                              <Plus className="w-3.5 h-3.5" />
-                              Add Patient Note
-                           </Button>
-                        </div>
-
-                        {overview.handoverNotes.forNextShift.patientNotes.length === 0 && (
-                           <div className="border border-dashed border-gray-300 dark:border-slate-600 rounded-lg p-4 text-center text-xs text-gray-500 dark:text-slate-400">
-                              <MessageSquare className="w-5 h-5 mx-auto text-gray-300 dark:text-slate-600 mb-1.5" aria-hidden="true" />
-                              No patient-specific notes yet.
-                           </div>
-                        )}
-
-                        <div className="space-y-2">
-                           {overview.handoverNotes.forNextShift.patientNotes.map((note) => (
-                              <div key={note.id} className="border border-gray-200 dark:border-slate-600 rounded-lg p-3 space-y-2 dark:bg-slate-700/50">
-                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                                    <div>
-                                       <label className="block text-xs font-semibold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-1">Patient</label>
-                                       <select
-                                          value={note.patientId}
-                                          onChange={(event) => handleUpdatePatientNote(note.id, { patientId: event.target.value })}
-                                          className="w-full rounded-lg border border-gray-200 dark:border-slate-600 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-medium bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100"
-                                       >
-                                          <option value="">Select patient</option>
-                                          {overview.assignedPatients.map((patient) => (
-                                             <option key={patient.id} value={patient.id}>
-                                                {patient.name} - Room {patient.room}{patient.bed}
-                                             </option>
-                                          ))}
-                                       </select>
-                                    </div>
-                                    <div>
-                                       <label className="block text-xs font-semibold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-1">Priority</label>
-                                       <select
-                                          value={note.priority}
-                                          onChange={(event) => handleUpdatePatientNote(note.id, { priority: event.target.value })}
-                                          className="w-full rounded-lg border border-gray-200 dark:border-slate-600 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-medium bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100"
-                                       >
-                                          <option value="normal">Normal</option>
-                                          <option value="urgent">Urgent</option>
-                                       </select>
-                                    </div>
-                                 </div>
-                                 <div>
-                                    <label className="block text-xs font-semibold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-1">Note</label>
-                                    <textarea
-                                       rows={3}
-                                       className="w-full rounded-lg border border-gray-200 dark:border-slate-600 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-medium bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 dark:placeholder-slate-400"
-                                       value={note.note}
-                                       onChange={(event) => handleUpdatePatientNote(note.id, { note: event.target.value })}
-                                       placeholder="Enter patient note..."
-                                    />
-                                 </div>
-                                 <div className="flex justify-end">
-                                    <button
-                                       type="button"
-                                       className="inline-flex items-center gap-2 text-sm text-red-600 font-semibold hover:text-red-700"
-                                       onClick={() => handleDeletePatientNote(note.id)}
-                                    >
-                                       <Trash2 className="w-4 h-4" aria-hidden="true" />
-                                       Remove
-                                    </button>
-                                 </div>
-                              </div>
-                           ))}
-                        </div>
-                     </div>
-                  </div>
-               </Card>
-            )}
+                  ))
+               )}
+            </Card>
          </section>
       </div>
    );

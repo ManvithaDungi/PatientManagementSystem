@@ -86,21 +86,34 @@ const Appointments = () => {
         setCancelModalOpen(true);
     };
 
-    const confirmCancel = () => {
+    const confirmCancel = async () => {
         if (!apptToCancel) return; // Safety check
 
-        setAppointments(appointments.map(a =>
-            a.id === apptToCancel.id ? { ...a, status: 'CANCELLED' } : a
-        ));
-        setCancelModalOpen(false);
-        setApptToCancel(null);
-        setSelectedAppointment(null);
+        try {
+            await api.appointments.cancel(apptToCancel.id);
+            setAppointments(appointments.map(a =>
+                a.id === apptToCancel.id ? { ...a, status: 'CANCELLED' } : a
+            ));
+        } catch (err) {
+            console.error('Failed to cancel appointment:', err);
+            setError('Failed to cancel appointment. Please try again.');
+        } finally {
+            setCancelModalOpen(false);
+            setApptToCancel(null);
+            setSelectedAppointment(null);
+        }
     };
 
-    const handleComplete = (id) => {
-        setAppointments(appointments.map(a =>
-            a.id === id ? { ...a, status: 'COMPLETED' } : a
-        ));
+    const handleComplete = async (id) => {
+        try {
+            await api.appointments.complete(id);
+            setAppointments(appointments.map(a =>
+                a.id === id ? { ...a, status: 'COMPLETED' } : a
+            ));
+        } catch (err) {
+            console.error('Failed to complete appointment:', err);
+            setError('Failed to check in patient. Please try again.');
+        }
     };
 
     return (

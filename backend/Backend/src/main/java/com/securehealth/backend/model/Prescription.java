@@ -42,6 +42,9 @@ public class Prescription {
     @Column(nullable = false)
     private String duration; // e.g., "7 days"
 
+    // e.g., "Oral", "IV", "IM", "Topical" — defaults to Oral, the most common route
+    private String route = "Oral";
+
     @Column(columnDefinition = "TEXT")
     private String specialInstructions; // e.g., "Take with food"
 

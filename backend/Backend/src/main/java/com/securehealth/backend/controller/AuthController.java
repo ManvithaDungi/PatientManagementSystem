@@ -40,6 +40,9 @@ public class AuthController {
     @Autowired
     private LoginRepository loginRepository;
 
+    @org.springframework.beans.factory.annotation.Value("${app.cookie.secure:false}")
+    private boolean cookieSecure;
+
     /**
      * Returns the current authenticated user's profile.
      * Endpoint: GET /api/auth/me
@@ -142,7 +145,7 @@ public class AuthController {
             // 2. If we get here, Login is fully successful. Set the Cookie.
             Cookie refreshCookie = new Cookie("refreshToken", loginData.getRefreshToken());
             refreshCookie.setHttpOnly(true);
-            refreshCookie.setSecure(false); // True in Prod
+            refreshCookie.setSecure(cookieSecure);
             refreshCookie.setPath("/api/auth");
             refreshCookie.setMaxAge(7 * 24 * 60 * 60);
 
@@ -209,7 +212,7 @@ public class AuthController {
             // Login is successful. Set the Cookie.
             Cookie refreshCookie = new Cookie("refreshToken", loginData.getRefreshToken());
             refreshCookie.setHttpOnly(true);
-            refreshCookie.setSecure(false); // True in Prod
+            refreshCookie.setSecure(cookieSecure);
             refreshCookie.setPath("/api/auth");
             refreshCookie.setMaxAge(7 * 24 * 60 * 60);
 
@@ -224,6 +227,30 @@ public class AuthController {
             // In a real app, use a Global Exception Handler
             // For now, returning a generic response
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(null);
+        }
+    }
+
+    /**
+     * Re-sends a fresh OTP for a user who is mid-2FA-verification.
+     * <p>
+     * Endpoint: POST /api/auth/resend-otp
+     * </p>
+     */
+    @PostMapping("/resend-otp")
+    public ResponseEntity<Map<String, String>> resendOtp(@RequestBody Map<String, String> request) {
+        Map<String, String> resp = new HashMap<>();
+        try {
+            String email = request.get("email");
+            if (email == null || email.trim().isEmpty()) {
+                resp.put("message", "Email is required");
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(resp);
+            }
+            authService.resendOtp(email);
+            resp.put("message", "A new OTP has been sent to your email");
+            return ResponseEntity.ok(resp);
+        } catch (RuntimeException e) {
+            resp.put("message", e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(resp);
         }
     }
 
@@ -247,7 +274,7 @@ public class AuthController {
         // 2. Destroy the cookie in the user's browser
         Cookie cookie = new Cookie("refreshToken", null);
         cookie.setHttpOnly(true);
-        cookie.setSecure(false); // Make sure this is true in production (HTTPS)
+        cookie.setSecure(cookieSecure);
         cookie.setPath("/api/auth");
         cookie.setMaxAge(0); // MaxAge 0 tells the browser to delete it instantly
         response.addCookie(cookie);
@@ -429,7 +456,7 @@ public class AuthController {
             // 3. Set the NEW Cookie (HttpOnly)
             Cookie newCookie = new Cookie("refreshToken", loginData.getRefreshToken());
             newCookie.setHttpOnly(true);
-            newCookie.setSecure(false); // Set to TRUE in Production (HTTPS)
+            newCookie.setSecure(cookieSecure);
             newCookie.setPath("/api/auth");
             newCookie.setMaxAge(7 * 24 * 60 * 60); // 7 Days
 

@@ -18,6 +18,7 @@ public class MedicalRecordDTO {
     private String symptoms;
     private String treatmentProvided;
     private String notes;
+    private String attachmentUrl;
     private LocalDateTime recordDate;
     private LocalDateTime createdAt;
 }

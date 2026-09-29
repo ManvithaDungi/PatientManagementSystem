@@ -1,22 +1,72 @@
 // API Service - Centralized API calls for the Patient Management System
 const API_BASE_URL = process.env.REACT_APP_API_URL || '';
 
-// Helper function for API calls
-const apiCall = async (endpoint, options = {}) => {
-   // Retrieve access token from secure_health_user in localStorage
+const getAccessToken = () => {
    const userDataStr = localStorage.getItem('secure_health_user');
-   let accessToken = null;
-   if (userDataStr) {
-      try {
-         const userSession = JSON.parse(userDataStr);
-         accessToken = userSession.accessToken;
-      } catch (e) {
-         console.error('Failed to parse secure_health_user from localStorage', e);
-      }
+   if (!userDataStr) return null;
+   try {
+      return JSON.parse(userDataStr).accessToken || null;
+   } catch (e) {
+      console.error('Failed to parse secure_health_user from localStorage', e);
+      return null;
    }
+};
+
+const setAccessToken = (accessToken) => {
+   const userDataStr = localStorage.getItem('secure_health_user');
+   if (!userDataStr) return;
+   try {
+      const userSession = JSON.parse(userDataStr);
+      userSession.accessToken = accessToken;
+      localStorage.setItem('secure_health_user', JSON.stringify(userSession));
+   } catch (e) {
+      console.error('Failed to update stored access token', e);
+   }
+};
+
+const forceLogout = () => {
+   localStorage.removeItem('secure_health_user');
+   window.location.href = '/login';
+};
+
+// The 15-minute access token is backed by a 7-day HttpOnly refresh cookie
+// (set by /api/auth/login). Rather than force a re-login on every 401, try
+// rotating the access token once via /api/auth/refresh-token first.
+// Concurrent 401s share a single in-flight refresh instead of each firing one.
+let refreshInFlight = null;
+const refreshAccessToken = () => {
+   if (!refreshInFlight) {
+      refreshInFlight = fetch(`${API_BASE_URL}/auth/refresh-token`, {
+         method: 'POST',
+         credentials: 'include',
+      })
+         .then(async (response) => {
+            if (!response.ok) return null;
+            const data = await response.json().catch(() => null);
+            if (data?.accessToken) {
+               setAccessToken(data.accessToken);
+               return data.accessToken;
+            }
+            return null;
+         })
+         .catch(() => null)
+         .finally(() => {
+            refreshInFlight = null;
+         });
+   }
+   return refreshInFlight;
+};
+
+// Helper function for JSON API calls
+const apiCall = async (endpoint, options = {}, isRetry = false) => {
+   const accessToken = getAccessToken();
+
+   // A FormData body (e.g. file upload) must NOT get a manual Content-Type —
+   // the browser needs to set its own multipart boundary.
+   const isFormData = options.body instanceof FormData;
 
    const headers = {
-      'Content-Type': 'application/json',
+      ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
       ...options.headers,
    };
 
@@ -35,11 +85,19 @@ const apiCall = async (endpoint, options = {}) => {
       const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
 
       if (!response.ok) {
-         // Handle 401 Unauthorized - token may be expired
+         // A 401 on the refresh endpoint itself, or a retry that still 401s,
+         // means the session truly can't be recovered — log out.
+         const isAuthEndpoint = endpoint.startsWith('/auth/');
+         if (response.status === 401 && !isRetry && !isAuthEndpoint) {
+            const newAccessToken = await refreshAccessToken();
+            if (newAccessToken) {
+               return apiCall(endpoint, options, true);
+            }
+         }
+
          if (response.status === 401) {
             console.warn('Session expired. Redirecting to login...');
-            localStorage.removeItem('secure_health_user');
-            window.location.href = '/login';
+            forceLogout();
          }
 
          const error = await response.json().catch(() => ({ message: 'Request failed' }));
@@ -51,6 +109,34 @@ const apiCall = async (endpoint, options = {}) => {
       console.error(`API Error [${endpoint}]:`, error);
       throw error;
    }
+};
+
+// Helper for endpoints that return a raw file body (not JSON), e.g. GET /files/{filename}.
+// Returns a browser-local object URL the caller is responsible for revoking when done.
+const apiCallBlob = async (endpoint, options = {}) => {
+   const accessToken = getAccessToken();
+   const headers = { ...options.headers };
+   if (accessToken) {
+      headers['Authorization'] = `Bearer ${accessToken}`;
+   }
+
+   const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      headers,
+      credentials: 'include',
+      ...options,
+   });
+
+   if (!response.ok) {
+      if (response.status === 401) {
+         localStorage.removeItem('secure_health_user');
+         window.location.href = '/login';
+      }
+      const error = await response.json().catch(() => ({ message: 'Request failed' }));
+      throw new Error(error.message || `HTTP error! status: ${response.status}`);
+   }
+
+   const blob = await response.blob();
+   return URL.createObjectURL(blob);
 };
 
 // ============================================
@@ -131,12 +217,9 @@ export const patientAPI = {
       });
    },
 
-   // Delete patient
-   delete: async (id) => {
-      return apiCall(`/patients/${id}`, {
-         method: 'DELETE',
-      });
-   },
+   // Note: no DELETE /patients/{id} endpoint exists on the backend by design —
+   // patient records are deactivated per hospital policy, not deleted. If a
+   // deactivation workflow is needed, add a backend endpoint for it first.
 };
 
 // ============================================
@@ -172,6 +255,13 @@ export const appointmentAPI = {
       });
    },
 
+   // Get a doctor's open time slots for a given date (YYYY-MM-DD)
+   getAvailableSlots: async (doctorId, date) => {
+      return apiCall(`/appointments/doctor/${doctorId}/available-slots?date=${date}`, {
+         method: 'GET',
+      });
+   },
+
    // Create new appointment
    create: async (appointmentData) => {
       return apiCall('/appointments', {
@@ -180,11 +270,26 @@ export const appointmentAPI = {
       });
    },
 
-   // Update appointment
+   // Update appointment (DOCTOR only — date, doctor's notes)
    update: async (id, appointmentData) => {
       return apiCall(`/appointments/${id}`, {
          method: 'PUT',
          body: JSON.stringify(appointmentData),
+      });
+   },
+
+   // Reschedule an appointment (PATIENT only — date/time only, resets to pending approval)
+   reschedule: async (id, appointmentDate) => {
+      return apiCall(`/appointments/${id}/reschedule`, {
+         method: 'PUT',
+         body: JSON.stringify({ appointmentDate }),
+      });
+   },
+
+   // Mark an appointment as completed (DOCTOR only)
+   complete: async (id) => {
+      return apiCall(`/appointments/${id}/complete`, {
+         method: 'PUT',
       });
    },
 
@@ -346,13 +451,11 @@ export const labResultAPI = {
       });
    },
 
-   // Update lab result
-   update: async (id, labResultData) => {
-      return apiCall(`/lab-results/${id}`, {
-         method: 'PUT',
-         body: JSON.stringify(labResultData),
-      });
-   },
+   // Note: no PUT /lab-results/{id} endpoint exists on the backend and no page
+   // in this app edits a submitted lab result in place — a lab result is either
+   // pending (labTechnicianAPI.uploadResults) or final. If in-place editing of a
+   // finalized result becomes a real requirement, add a backend endpoint first,
+   // then a corresponding `update` wrapper here.
 
    // Delete lab result
    delete: async (id) => {
@@ -371,6 +474,21 @@ export const doctorAPI = {
    getAll: async () => {
       return apiCall('/doctors', {
          method: 'GET',
+      });
+   },
+
+   // Get the currently authenticated doctor's own profile (resolved server-side via JWT identity)
+   getMe: async () => {
+      return apiCall('/doctors/me', {
+         method: 'GET',
+      });
+   },
+
+   // Update the currently authenticated doctor's own profile
+   updateMe: async (doctorData) => {
+      return apiCall('/doctors/me', {
+         method: 'PUT',
+         body: JSON.stringify(doctorData),
       });
    },
 
@@ -431,13 +549,10 @@ export const vitalSignsAPI = {
       });
    },
 
-   // Update vital signs
-   update: async (id, vitalSignsData) => {
-      return apiCall(`/vital-signs/${id}`, {
-         method: 'PUT',
-         body: JSON.stringify(vitalSignsData),
-      });
-   },
+   // Note: no PUT /vital-signs/{id} endpoint exists on the backend and no page
+   // in this app edits a previously recorded vital-sign entry — vitals are
+   // append-only observations. If correcting a past entry becomes a real
+   // requirement, add a backend endpoint first, then an `update` wrapper here.
 };
 
 // ============================================
@@ -472,12 +587,15 @@ export const nurseAPI = {
          body: JSON.stringify(vitalSignsData)
       });
    },
-   recordMedicationAdministration: async (medicationData) => {
-      // Endpoint may not be strictly implemented on backend, but fulfilling the fix requirement
-      return apiCall('/nurse/medications/record', {
+   // Records a single dose administration against a prescription
+   recordMedicationAdministration: async (prescriptionId, notes) => {
+      return apiCall(`/nurse/medications/${prescriptionId}/administer`, {
          method: 'POST',
-         body: JSON.stringify(medicationData)
+         body: JSON.stringify({ notes })
       });
+   },
+   getMedicationAdministrationHistory: async (prescriptionId) => {
+      return apiCall(`/nurse/medications/${prescriptionId}/history`, { method: 'GET' });
    }
 };
 
@@ -598,6 +716,49 @@ export const consentAPI = {
    },
 };
 
+// ============================================
+// FILE APIs
+// ============================================
+
+export const filesAPI = {
+   // Uploads a file (encrypted at rest server-side); resolves to the stored filename
+   // to be passed as e.g. a lab result's fileUrl.
+   upload: async (file) => {
+      const formData = new FormData();
+      formData.append('file', file);
+      const result = await apiCall('/files/upload', {
+         method: 'POST',
+         body: formData,
+      });
+      return result.filename;
+   },
+
+   // Downloads and decrypts a stored file, returning a browser object URL.
+   // Caller should call URL.revokeObjectURL(url) when done with it (e.g. on unmount).
+   getObjectUrl: async (filename) => {
+      return apiCallBlob(`/files/${encodeURIComponent(filename)}`, { method: 'GET' });
+   },
+};
+
+// ============================================
+// CATALOG APIs (static reference data for dropdowns)
+// ============================================
+
+export const catalogAPI = {
+   getHospitalDepartments: async () => {
+      return apiCall('/hospital-departments', { method: 'GET' });
+   },
+   getMedications: async () => {
+      return apiCall('/medications', { method: 'GET' });
+   },
+   getTestTypes: async () => {
+      return apiCall('/test-types', { method: 'GET' });
+   },
+   getConditions: async () => {
+      return apiCall('/conditions', { method: 'GET' });
+   },
+};
+
 const api = {
    auth: authAPI,
    patients: patientAPI,
@@ -611,6 +772,8 @@ const api = {
    labTechnician: labTechnicianAPI,
    admin: adminAPI,
    consent: consentAPI,
+   catalog: catalogAPI,
+   files: filesAPI,
 };
 
 export default api;

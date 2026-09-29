@@ -10,8 +10,8 @@ const PrescriptionModal = ({ isOpen, onClose, patientId, onAdd }) => {
         dosage: '',
         frequency: '',
         duration: '',
-        instructions: '',
-        quantity: ''
+        route: 'Oral',
+        instructions: ''
     });
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState(null);
@@ -27,6 +27,8 @@ const PrescriptionModal = ({ isOpen, onClose, patientId, onAdd }) => {
         'Monthly'
     ];
 
+    const routes = ['Oral', 'IV', 'IM', 'Subcutaneous', 'Topical', 'Inhaled'];
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         setError(null);
@@ -39,14 +41,12 @@ const PrescriptionModal = ({ isOpen, onClose, patientId, onAdd }) => {
                 dosage: prescription.dosage,
                 frequency: prescription.frequency,
                 duration: prescription.duration,
+                route: prescription.route,
                 specialInstructions: prescription.instructions,
-                quantity: parseInt(prescription.quantity) || 1,
-                issuedAt: new Date().toISOString(),
-                status: 'ACTIVE'
             };
 
-            await api.prescriptions.create(payload);
-            onAdd(payload);
+            const created = await api.prescriptions.create(payload);
+            onAdd(created);
             resetForm();
             onClose();
         } catch (err) {
@@ -63,8 +63,8 @@ const PrescriptionModal = ({ isOpen, onClose, patientId, onAdd }) => {
             dosage: '',
             frequency: '',
             duration: '',
-            instructions: '',
-            quantity: ''
+            route: 'Oral',
+            instructions: ''
         });
     };
 
@@ -141,15 +141,18 @@ const PrescriptionModal = ({ isOpen, onClose, patientId, onAdd }) => {
                     </div>
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">
-                            Quantity
+                            Route
                         </label>
-                        <Input
-                            type="number"
-                            value={prescription.quantity}
-                            onChange={e => setPrescription({ ...prescription, quantity: e.target.value })}
-                            placeholder="e.g. 30"
+                        <select
+                            value={prescription.route}
+                            onChange={e => setPrescription({ ...prescription, route: e.target.value })}
+                            className="w-full px-4 py-2 border border-gray-300 dark:border-slate-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100"
                             required
-                        />
+                        >
+                            {routes.map(r => (
+                                <option key={r} value={r}>{r}</option>
+                            ))}
+                        </select>
                     </div>
                 </div>
 

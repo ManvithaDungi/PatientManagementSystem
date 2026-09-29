@@ -86,4 +86,34 @@ public class NurseController {
             return ResponseEntity.badRequest().body(e.getMessage());
         }
     }
+
+    /**
+     * Records that the calling nurse administered a dose of a prescribed medication.
+     * Endpoint: POST /api/nurse/medications/{prescriptionId}/administer
+     */
+    @PostMapping("/medications/{prescriptionId}/administer")
+    public ResponseEntity<?> recordMedicationAdministration(
+            @PathVariable Long prescriptionId,
+            @RequestBody(required = false) Map<String, Object> payload,
+            Authentication authentication) {
+        try {
+            String notes = payload != null && payload.get("notes") != null ? String.valueOf(payload.get("notes")) : null;
+            return ResponseEntity.ok(nurseService.recordMedicationAdministration(prescriptionId, authentication.getName(), notes));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    /**
+     * Retrieves the administration history for a single prescription.
+     * Endpoint: GET /api/nurse/medications/{prescriptionId}/history
+     */
+    @GetMapping("/medications/{prescriptionId}/history")
+    public ResponseEntity<?> getMedicationAdministrationHistory(@PathVariable Long prescriptionId) {
+        try {
+            return ResponseEntity.ok(nurseService.getAdministrationHistory(prescriptionId));
+        } catch (RuntimeException e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
 }

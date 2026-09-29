@@ -12,6 +12,7 @@ const LabOrderDetail = () => {
     const [order, setOrder] = useState(null);
     const [loading, setLoading] = useState(true);
     const [collecting, setCollecting] = useState(false);
+    const [reportError, setReportError] = useState(null);
 
     useEffect(() => {
         const fetchOrder = async () => {
@@ -40,6 +41,21 @@ const LabOrderDetail = () => {
             console.error('Failed to update status:', err);
         } finally {
             setCollecting(false);
+        }
+    };
+
+    // A plain <a href> to /api/files/{filename} can't carry the app's bearer token,
+    // so the file must be fetched with an authenticated request and opened as a
+    // local object URL instead (see FULL_STACK_INTEGRATION_AUDIT.md LA-3).
+    const handleViewReport = async (filename) => {
+        setReportError(null);
+        try {
+            const objectUrl = await api.files.getObjectUrl(filename);
+            window.open(objectUrl, '_blank', 'noopener,noreferrer');
+            setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+        } catch (err) {
+            console.error('Failed to open report:', err);
+            setReportError('Unable to open this report. Please try again.');
         }
     };
 
@@ -173,11 +189,10 @@ const LabOrderDetail = () => {
                                         <p className="text-xs font-medium text-gray-900 dark:text-slate-100">Results Uploaded</p>
                                         {order.fileUrl && (
                                             <div className="mt-1">
-                                                <a href={order.fileUrl} target="_blank" rel="noopener noreferrer">
-                                                    <Button variant="outline" size="sm" className="text-[10px]">
-                                                        <FileText className="w-3 h-3 mr-1" /> View Report
-                                                    </Button>
-                                                </a>
+                                                <Button variant="outline" size="sm" className="text-[10px]" onClick={() => handleViewReport(order.fileUrl)}>
+                                                    <FileText className="w-3 h-3 mr-1" /> View Report
+                                                </Button>
+                                                {reportError && <p className="text-[10px] text-red-600 dark:text-red-400 mt-1">{reportError}</p>}
                                             </div>
                                         )}
                                     </div>

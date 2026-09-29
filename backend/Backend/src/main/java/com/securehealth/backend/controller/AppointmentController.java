@@ -67,11 +67,11 @@ public class AppointmentController {
         try {
             // Extract the email from the JWT token
             String email = auth.getName();
-            
-            Appointment newAppointment = appointmentService.createAppointment(request, email);
-            
+
+            AppointmentDTO newAppointment = appointmentService.createAppointment(request, email);
+
             return ResponseEntity.ok(newAppointment);
-            
+
         } catch (RuntimeException e) {
             // If it's our double-booking error, return a 409 Conflict. Otherwise, 400 Bad Request.
             if (e.getMessage().contains("409")) {
@@ -129,6 +129,9 @@ public class AppointmentController {
 
     @GetMapping("/{id}")
     public ResponseEntity<?> getById(@PathVariable Long id, Authentication auth) {
+        // Resolved via the repository only to run the access check against the owning
+        // patient; the response is always the DTO, never the raw entity (whose .doctor
+        // association carries Login with no JSON guard on passwordHash/otp).
         Appointment appt = appointmentRepository.findById(id).orElse(null);
         if (appt == null) {
             return ResponseEntity.status(404).body("Appointment not found with id: " + id);
@@ -138,12 +141,12 @@ public class AppointmentController {
         } catch (RuntimeException e) {
             return ResponseEntity.status(403).body(e.getMessage());
         }
-        return ResponseEntity.ok((Object) appt);
+        return ResponseEntity.ok(appointmentService.getAppointmentById(id));
     }
 
     @GetMapping("/status/{status}")
-    public ResponseEntity<List<Appointment>> getByStatus(@PathVariable String status) {
-        return ResponseEntity.ok(appointmentRepository.findByStatus(AppointmentStatus.valueOf(status.toUpperCase())));
+    public ResponseEntity<List<AppointmentDTO>> getByStatus(@PathVariable String status) {
+        return ResponseEntity.ok(appointmentService.getAppointmentsByStatus(AppointmentStatus.valueOf(status.toUpperCase())));
     }
 
     @GetMapping("/stats")
@@ -188,11 +191,38 @@ public class AppointmentController {
 
     @PutMapping("/{id}/cancel")
     @PreAuthorize("hasAnyAuthority('ADMIN', 'DOCTOR', 'PATIENT')")
-    public ResponseEntity<?> cancelAppointment(@PathVariable Long id, Authentication auth) {
+    public ResponseEntity<?> cancelAppointment(@PathVariable Long id,
+            @RequestBody(required = false) java.util.Map<String, Object> body, Authentication auth) {
         try {
             String role = auth.getAuthorities().stream().findFirst().get().getAuthority();
-            return ResponseEntity.ok(appointmentService.cancelAppointment(id, auth.getName(), role));
+            String reason = body != null && body.get("reason") != null ? String.valueOf(body.get("reason")) : null;
+            return ResponseEntity.ok(appointmentService.cancelAppointment(id, auth.getName(), role, reason));
         } catch (RuntimeException e) {
+            return ResponseEntity.status(400).body(e.getMessage());
+        }
+    }
+
+    /**
+     * PATIENT ONLY: Reschedules the caller's own appointment to a new date/time.
+     * Unlike {@code PUT /{id}} (DOCTOR-only, full update), this only accepts a new
+     * date and resets the appointment to PENDING_APPROVAL for re-confirmation.
+     * Endpoint: PUT /api/appointments/{id}/reschedule
+     */
+    @PutMapping("/{id}/reschedule")
+    @PreAuthorize("hasAuthority('PATIENT')")
+    public ResponseEntity<?> rescheduleAppointment(@PathVariable Long id,
+            @RequestBody java.util.Map<String, Object> body, Authentication auth) {
+        try {
+            Object rawDate = body.get("appointmentDate");
+            if (rawDate == null) {
+                return ResponseEntity.badRequest().body("appointmentDate is required");
+            }
+            java.time.LocalDateTime newDate = java.time.LocalDateTime.parse(String.valueOf(rawDate));
+            return ResponseEntity.ok(appointmentService.rescheduleAppointment(id, newDate, auth.getName()));
+        } catch (RuntimeException e) {
+            if (e.getMessage() != null && e.getMessage().contains("409")) {
+                return ResponseEntity.status(409).body(e.getMessage());
+            }
             return ResponseEntity.status(400).body(e.getMessage());
         }
     }

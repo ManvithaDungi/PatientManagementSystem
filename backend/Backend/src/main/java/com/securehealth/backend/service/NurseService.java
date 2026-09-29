@@ -2,12 +2,17 @@ package com.securehealth.backend.service;
 
 import com.securehealth.backend.model.HandoverNote;
 import com.securehealth.backend.model.Login;
+import com.securehealth.backend.model.MedicationAdministration;
 import com.securehealth.backend.model.NurseTask;
 import com.securehealth.backend.model.PatientProfile;
+import com.securehealth.backend.model.Prescription;
+import com.securehealth.backend.dto.MedicationAdministrationDTO;
 import com.securehealth.backend.repository.HandoverNoteRepository;
 import com.securehealth.backend.repository.LoginRepository;
+import com.securehealth.backend.repository.MedicationAdministrationRepository;
 import com.securehealth.backend.repository.NurseTaskRepository;
 import com.securehealth.backend.repository.PatientProfileRepository;
+import com.securehealth.backend.repository.PrescriptionRepository;
 import com.securehealth.backend.repository.VitalSignRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -18,6 +23,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Service for nursing operations and clinical task management.
@@ -36,6 +42,8 @@ public class NurseService {
     @Autowired private NurseTaskRepository nurseTaskRepository;
     @Autowired private HandoverNoteRepository handoverNoteRepository;
     @Autowired private VitalSignRepository vitalSignRepository;
+    @Autowired private PrescriptionRepository prescriptionRepository;
+    @Autowired private MedicationAdministrationRepository medicationAdministrationRepository;
 
     private Login getAuthUser(String email) {
         return loginRepository.findByEmail(email)
@@ -219,5 +227,63 @@ public class NurseService {
         }
 
         return handoverNoteRepository.save(note);
+    }
+
+    /**
+     * Records that a nurse administered a dose of a prescribed medication.
+     * <p>
+     * Creates one {@link MedicationAdministration} row per dose given — a single
+     * prescription (e.g. "twice daily for 7 days") accumulates many of these
+     * over its course. This is intentionally separate from the {@link Prescription}
+     * itself, which represents the doctor's order, not administration history.
+     * </p>
+     *
+     * @param prescriptionId the prescription being administered
+     * @param nurseEmail     the email of the administering nurse
+     * @param notes          optional clinical notes about this administration
+     * @return the saved administration record, as a {@link MedicationAdministrationDTO}
+     * @throws RuntimeException if the prescription does not exist
+     */
+    public MedicationAdministrationDTO recordMedicationAdministration(Long prescriptionId, String nurseEmail, String notes) {
+        Login nurse = getAuthUser(nurseEmail);
+        Prescription prescription = prescriptionRepository.findById(prescriptionId)
+                .orElseThrow(() -> new RuntimeException("404: Prescription not found"));
+
+        MedicationAdministration record = new MedicationAdministration();
+        record.setPrescription(prescription);
+        record.setPatient(prescription.getPatient());
+        record.setNurse(nurse);
+        record.setAdministeredAt(LocalDateTime.now());
+        record.setNotes(notes);
+
+        MedicationAdministration saved = medicationAdministrationRepository.save(record);
+        return mapAdministrationToDTO(saved);
+    }
+
+    /**
+     * Retrieves the medication administration history for a single prescription,
+     * most recent first.
+     *
+     * @param prescriptionId the prescription to look up
+     * @return a list of {@link MedicationAdministrationDTO} objects
+     */
+    public List<MedicationAdministrationDTO> getAdministrationHistory(Long prescriptionId) {
+        return medicationAdministrationRepository
+                .findByPrescription_PrescriptionIdOrderByAdministeredAtDesc(prescriptionId)
+                .stream()
+                .map(this::mapAdministrationToDTO)
+                .collect(Collectors.toList());
+    }
+
+    private MedicationAdministrationDTO mapAdministrationToDTO(MedicationAdministration record) {
+        MedicationAdministrationDTO dto = new MedicationAdministrationDTO();
+        dto.setId(record.getId());
+        dto.setPrescriptionId(record.getPrescription().getPrescriptionId());
+        dto.setMedicationName(record.getPrescription().getMedicationName());
+        dto.setPatientId(record.getPatient() != null ? record.getPatient().getProfileId() : null);
+        dto.setNurseEmail(record.getNurse() != null ? record.getNurse().getEmail() : null);
+        dto.setAdministeredAt(record.getAdministeredAt());
+        dto.setNotes(record.getNotes());
+        return dto;
     }
 }

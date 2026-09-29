@@ -37,6 +37,9 @@ public class MedicalRecordController {
 
     @GetMapping("/{id}")
     public ResponseEntity<?> getById(@PathVariable Long id, Authentication auth) {
+        // Resolved via the repository only to run the access check against the owning
+        // patient; the response is always the DTO, never the raw entity (whose
+        // .doctor/.patient associations carry Login with no JSON guard on passwordHash/otp).
         MedicalRecord record = medicalRecordRepository.findById(id).orElse(null);
         if (record == null) {
             return ResponseEntity.status(404).body("Medical record not found with id: " + id);
@@ -46,17 +49,28 @@ public class MedicalRecordController {
         } catch (RuntimeException e) {
             return ResponseEntity.status(403).body(e.getMessage());
         }
-        return ResponseEntity.ok((Object) record);
+        return ResponseEntity.ok(medicalRecordService.getMedicalRecordById(id));
     }
 
     @PostMapping
     @PreAuthorize("hasAuthority('DOCTOR')")
     public ResponseEntity<?> createMedicalRecord(@Valid @RequestBody com.securehealth.backend.dto.MedicalRecordRequest request, Authentication auth) {
         try {
-            MedicalRecord newRecord = medicalRecordService.createMedicalRecord(request, auth.getName());
+            com.securehealth.backend.dto.MedicalRecordDTO newRecord = medicalRecordService.createMedicalRecord(request, auth.getName());
             return ResponseEntity.ok(newRecord);
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    @PutMapping("/{id}")
+    @PreAuthorize("hasAuthority('DOCTOR')")
+    public ResponseEntity<?> updateMedicalRecord(@PathVariable Long id,
+            @RequestBody com.securehealth.backend.dto.MedicalRecordRequest request, Authentication auth) {
+        try {
+            return ResponseEntity.ok(medicalRecordService.updateMedicalRecord(id, request, auth.getName()));
+        } catch (RuntimeException e) {
+            return ResponseEntity.status(400).body(e.getMessage());
         }
     }
 

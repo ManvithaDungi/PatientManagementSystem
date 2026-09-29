@@ -43,6 +43,9 @@ public class LabResultController {
 
     @GetMapping("/{id}")
     public ResponseEntity<?> getById(@PathVariable Long id, Authentication auth) {
+        // Resolved via the repository only to run the access check against the owning
+        // patient; the response is always the DTO, never the raw entity (whose
+        // .orderedBy/.patient associations carry Login with no JSON guard on passwordHash/otp).
         LabTest test = labTestRepository.findById(id).orElse(null);
         if (test == null) {
             return ResponseEntity.status(404).body("Lab result not found with id: " + id);
@@ -52,16 +55,16 @@ public class LabResultController {
         } catch (RuntimeException e) {
             return ResponseEntity.status(403).body(e.getMessage());
         }
-        return ResponseEntity.ok((Object) test);
+        return ResponseEntity.ok(labTestService.getLabTestById(id));
     }
 
-    
+
 
     @PostMapping
     @PreAuthorize("hasAnyAuthority('DOCTOR', 'ADMIN', 'LAB_TECHNICIAN')")
     public ResponseEntity<?> createLabTest(@Valid @RequestBody com.securehealth.backend.dto.LabTestRequest request, Authentication auth) {
         try {
-            LabTest newLabTest = labTestService.createLabTest(request, auth.getName());
+            LabTestDTO newLabTest = labTestService.createLabTest(request, auth.getName());
             return ResponseEntity.ok(newLabTest);
         } catch (RuntimeException e) {
             return ResponseEntity.badRequest().body(e.getMessage());

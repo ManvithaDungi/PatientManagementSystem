@@ -24,4 +24,8 @@ public class AppointmentRequest {
 
     @NotBlank(message = "Reason for visit is required")
     private String reasonForVisit; // Optional notes from the patient
+
+    private String appointmentType; // e.g. "Consultation", "Follow-up", "Check-up", "Emergency"
+
+    private String specialRequirements;
 }

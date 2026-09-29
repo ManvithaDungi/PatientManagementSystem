@@ -23,6 +23,9 @@ public class DoctorService {
     @Autowired
     private DoctorProfileRepository doctorProfileRepository;
 
+    @Autowired
+    private com.securehealth.backend.repository.LoginRepository loginRepository;
+
     /**
      * Retrieves a list of all doctor profiles in the system.
      *
@@ -46,6 +49,27 @@ public class DoctorService {
     public DoctorDTO getDoctorById(Long id) {
         DoctorProfile profile = doctorProfileRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("404: Doctor not found"));
+        return mapToDTO(profile);
+    }
+
+    /**
+     * Retrieves the doctor profile belonging to the currently authenticated user.
+     * <p>
+     * Resolves by {@code Login.userId} (JWT identity) rather than requiring the
+     * caller to know its own {@code DoctorProfile.profileId} — avoids the
+     * profileId/userId ambiguity that {@link #getDoctorById(Long)} carries.
+     * </p>
+     *
+     * @param email the email of the authenticated doctor (from the JWT)
+     * @return the {@link DoctorDTO} for the calling doctor
+     * @throws RuntimeException if no doctor profile exists for this user
+     */
+    @Transactional(readOnly = true)
+    public DoctorDTO getMyProfile(String email) {
+        com.securehealth.backend.model.Login user = loginRepository.findByEmail(email)
+                .orElseThrow(() -> new RuntimeException("404: User not found"));
+        DoctorProfile profile = doctorProfileRepository.findByUser(user)
+                .orElseThrow(() -> new RuntimeException("404: Doctor profile not found"));
         return mapToDTO(profile);
     }
 
@@ -114,10 +138,43 @@ public class DoctorService {
         return mapToDTO(doctorProfileRepository.save(profile));
     }
 
+    /**
+     * Updates the profile belonging to the currently authenticated doctor.
+     * <p>
+     * Resolves by {@code Login.userId} — no ownership check is needed since the
+     * profile is looked up from the caller's own identity, not a path parameter.
+     * </p>
+     *
+     * @param email the email of the authenticated doctor (from the JWT)
+     * @param dto    the updated fields
+     * @return the updated {@link DoctorDTO}
+     */
+    @Transactional
+    public DoctorDTO updateMyProfile(String email, DoctorDTO dto) {
+        com.securehealth.backend.model.Login user = loginRepository.findByEmail(email)
+                .orElseThrow(() -> new RuntimeException("404: User not found"));
+        DoctorProfile profile = doctorProfileRepository.findByUser(user)
+                .orElseThrow(() -> new RuntimeException("404: Doctor profile not found"));
+
+        profile.setFirstName(dto.getFirstName());
+        profile.setLastName(dto.getLastName());
+        profile.setSpecialty(dto.getSpecialty());
+        profile.setContactNumber(dto.getContactNumber());
+        profile.setDepartment(dto.getDepartment());
+
+        if (dto.getShiftStartTime() != null) profile.setShiftStartTime(dto.getShiftStartTime());
+        if (dto.getShiftEndTime() != null) profile.setShiftEndTime(dto.getShiftEndTime());
+        if (dto.getSlotDurationMinutes() != null) profile.setSlotDurationMinutes(dto.getSlotDurationMinutes());
+        if (dto.getWorkingDays() != null) profile.setWorkingDays(dto.getWorkingDays());
+
+        return mapToDTO(doctorProfileRepository.save(profile));
+    }
+
     // --- Helper Method ---
     private DoctorDTO mapToDTO(DoctorProfile profile) {
         DoctorDTO dto = new DoctorDTO();
         dto.setId(profile.getProfileId());
+        dto.setUserId(profile.getUser().getUserId());
         dto.setFirstName(profile.getFirstName());
         dto.setLastName(profile.getLastName());
         dto.setEmail(profile.getUser().getEmail());

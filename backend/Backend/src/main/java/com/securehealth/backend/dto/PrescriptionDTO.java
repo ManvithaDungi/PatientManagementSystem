@@ -12,11 +12,14 @@ import java.time.LocalDateTime;
 @Data
 public class PrescriptionDTO {
     private Long prescriptionId;
+    private Long patientId;
+    private String patientName;
     private String doctorName;
     private String medicationName;
     private String dosage;
     private String frequency;
     private String duration;
+    private String route;
     private String specialInstructions;
     private String status;
     private LocalDateTime issuedAt;

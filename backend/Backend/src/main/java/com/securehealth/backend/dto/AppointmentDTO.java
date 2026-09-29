@@ -15,8 +15,13 @@ public class AppointmentDTO {
     private Long appointmentId;
     private Long doctorId;
     private String doctorName;
+    private Long patientId;
     private String patientName;
     private LocalDateTime appointmentDate;
     private AppointmentStatus status;
     private String reasonForVisit;
+    private String appointmentType;
+    private String specialRequirements;
+    private String doctorNotes;
+    private String cancellationReason;
 }

@@ -35,23 +35,11 @@ const AvailableSlotSelector = ({ doctorId, onSlotSelect, selectedDate }) => {
             }
         } catch (err) {
             console.error('Failed to fetch available slots:', err);
-            // Mock slots for demo
-            setMockSlots();
+            setAvailableSlots([]);
+            setError('Unable to load available slots right now. Please try again.');
         } finally {
             setIsLoading(false);
         }
-    };
-
-    const setMockSlots = () => {
-        const slots = [];
-        for (let i = 9; i < 17; i++) {
-            for (let j = 0; j < 60; j += 30) {
-                const hour = String(i).padStart(2, '0');
-                const min = String(j).padStart(2, '0');
-                slots.push(`${hour}:${min}`);
-            }
-        }
-        setAvailableSlots(slots);
     };
 
     const formatTime = (timeString) => {
