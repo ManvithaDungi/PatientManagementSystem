@@ -12,6 +12,8 @@ const LabOrderDetail = () => {
     const [order, setOrder] = useState(null);
     const [loading, setLoading] = useState(true);
     const [collecting, setCollecting] = useState(false);
+    const [advancing, setAdvancing] = useState(false);
+    const [statusError, setStatusError] = useState(null);
     const [reportError, setReportError] = useState(null);
 
     useEffect(() => {
@@ -41,6 +43,22 @@ const LabOrderDetail = () => {
             console.error('Failed to update status:', err);
         } finally {
             setCollecting(false);
+        }
+    };
+
+    // Sample is with the analyser: Collected -> Results Pending
+    const handleMarkResultsPending = async () => {
+        if (!order) return;
+        setStatusError(null);
+        try {
+            setAdvancing(true);
+            const updated = await api.labTechnician.updateOrderStatus(order.testId, 'Results Pending');
+            setOrder(updated);
+        } catch (err) {
+            console.error('Failed to update status:', err);
+            setStatusError(err.message || 'Unable to update the order status.');
+        } finally {
+            setAdvancing(false);
         }
     };
 
@@ -102,6 +120,11 @@ const LabOrderDetail = () => {
                             <CheckCircle className="w-4 h-4 mr-2" /> {collecting ? 'Updating...' : 'Mark Sample Collected'}
                         </Button>
                     )}
+                    {order.status === 'Collected' && (
+                        <Button onClick={handleMarkResultsPending} disabled={advancing} variant="outline">
+                            <CheckCircle className="w-4 h-4 mr-2" /> {advancing ? 'Updating...' : 'Mark Results Pending'}
+                        </Button>
+                    )}
                     {(order.status === 'Collected' || order.status === 'Results Pending') && (
                         <Button onClick={() => navigate('/dashboard/lab/upload')} className="bg-brand-medium">
                             <Upload className="w-4 h-4 mr-2" /> Upload Results
@@ -109,6 +132,10 @@ const LabOrderDetail = () => {
                     )}
                 </div>
             </div>
+
+            {statusError && (
+                <p role="alert" className="text-sm text-red-600">{statusError}</p>
+            )}
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div className="md:col-span-2 space-y-3">

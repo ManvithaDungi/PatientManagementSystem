@@ -4,7 +4,7 @@ import {
    Stethoscope, FlaskConical, Users, Network, Bell, Megaphone, BookOpen, Lock,
    Download, AlertTriangle, Check, X, HelpCircle, Mail, Phone, MessageSquare,
    FileText, ExternalLink, Edit3, Trash2, Plus, Calendar, User, History,
-   Database, Eye, Settings, RefreshCw, Archive, Search, Filter, BarChart3, Monitor
+   Database, Eye, Settings, RefreshCw, Archive, Search, Filter, BarChart3
 } from 'lucide-react';
 import Card from '../../components/common/Card';
 import Button from '../../components/common/Button';
@@ -12,6 +12,7 @@ import IconOnlyButton from '../../components/common/IconOnlyButton';
 import Badge from '../../components/common/Badge';
 import Modal from '../../components/common/Modal';
 import GrantModifyConsent from './GrantModifyConsent';
+import NewConsentModal from './NewConsentModal';
 import { useAuth } from '../../contexts/AuthContext';
 import { consentAPI } from '../../services/api';
 
@@ -30,10 +31,11 @@ const ConsentManagement = () => {
       consents: [],
       history: [],
       faq: [],
+      // Contact details come from deployment configuration; nothing is shown when unset.
       privacyOfficer: {
-         email: 'privacy@securehealth.example',
-         phone: '(555) 123-HIPAA',
-         hours: 'Mon–Fri 9am–5pm'
+         email: process.env.REACT_APP_PRIVACY_EMAIL || '',
+         phone: process.env.REACT_APP_PRIVACY_PHONE || '',
+         hours: process.env.REACT_APP_PRIVACY_HOURS || ''
       },
       legalLinks: {
          privacyNotice: 'https://www.hhs.gov/hipaa/for-individuals/index.html',
@@ -48,6 +50,7 @@ const ConsentManagement = () => {
    const [historyFilter, setHistoryFilter] = useState('all');
    const [showWithdrawModal, setShowWithdrawModal] = useState(false);
    const [showGrantModal, setShowGrantModal] = useState(false);
+   const [showNewConsent, setShowNewConsent] = useState(false);
    const [selectedConsent, setSelectedConsent] = useState(null);
    const [showHelpSection, setShowHelpSection] = useState(false);
    const [expandedFaq, setExpandedFaq] = useState({});
@@ -62,10 +65,12 @@ const ConsentManagement = () => {
    const [dataSearchQuery, setDataSearchQuery] = useState('');
    const [isLoading, setIsLoading] = useState(true);
    const [fetchError, setFetchError] = useState(null);
+   const [accessLog, setAccessLog] = useState(null); // null = not loaded yet
+   const [accessLogError, setAccessLogError] = useState(false);
 
    // Consent type → display metadata mapping
    const consentTypeDisplayMap = {
-      VIEW_RECORDS: { title: 'Medical Records Access', icon: 'BookOpen', description: 'Access to your full medical records and health history.' },
+      MEDICAL_RECORDS: { title: 'Medical Records Access', icon: 'BookOpen', description: 'Access to your full medical records and health history.' },
       PRESCRIPTIONS: { title: 'Prescription Data Access', icon: 'FlaskConical', description: 'Access to your current and past prescriptions.' },
       VITAL_SIGNS: { title: 'Vital Signs Access', icon: 'Stethoscope', description: 'Access to your recorded vital signs and measurements.' },
       LAB_RESULTS: { title: 'Lab Results Access', icon: 'FlaskConical', description: 'Access to your laboratory test results.' },
@@ -125,6 +130,23 @@ const ConsentManagement = () => {
    // eslint-disable-next-line react-hooks/exhaustive-deps
    }, []);
 
+   // Load the real access log (who read my data) the first time the Data tab is opened
+   useEffect(() => {
+      if (activeTab !== 'data' || accessLog !== null) return undefined;
+      let cancelled = false;
+      consentAPI.getAccessLog()
+         .then((rows) => { if (!cancelled) setAccessLog(Array.isArray(rows) ? rows : []); })
+         .catch(() => { if (!cancelled) { setAccessLogError(true); setAccessLog([]); } });
+      return () => { cancelled = true; };
+   }, [activeTab, accessLog]);
+
+   const accessLogView = (accessLog || [])
+      .filter((l) => {
+         const q = dataSearchQuery.trim().toLowerCase();
+         return !q || (l.accessor || '').toLowerCase().includes(q) || (l.action || '').toLowerCase().includes(q);
+      })
+      .map((l) => ({ ...l, type: 'view' }));
+
    // Tab configuration
    const tabs = [
       { id: 'overview', label: 'Consent Overview', icon: Eye, description: 'View all your consent statuses' },
@@ -132,20 +154,9 @@ const ConsentManagement = () => {
       { id: 'data', label: 'Data Management', icon: Database, description: 'Manage your health data' }
    ];
 
-   // Map consent ID to form category
-   const getFormCategory = (consentId) => {
-      const categoryMap = {
-         'research-studies': 'research',
-         'health-info-exchange': 'hie',
-         'treatment': 'hie',
-         'communication': 'communications',
-         'family-access': 'family-sharing',
-         'marketing': 'communications',
-         'education': 'research',
-         'emergency': 'hie'
-      };
-      return categoryMap[consentId] || 'research';
-   };
+   // Every consent here is a provider data-access grant, which is what the health-information-exchange
+   // form describes (the old id map matched ids that real consents never have, so it always showed the research form).
+   const getFormCategory = () => 'hie';
 
    // Icon mapping
    const iconMap = {
@@ -253,10 +264,35 @@ const ConsentManagement = () => {
       setShowGrantModal(true);
    };
 
+   // A brand-new consent was granted from the provider picker
+   const handleNewConsentGranted = async (consent, provider) => {
+      setShowNewConsent(false);
+      showToast('success', `Access granted${provider ? ` to ${provider.email}` : ''}.`);
+      await refreshConsents();
+   };
+
+   const refreshConsents = async () => {
+      try {
+         const apiConsents = await consentAPI.getMyConsents();
+         const mapped = apiConsents.map(transformApiConsent);
+         setConsentData(prev => ({
+            ...prev,
+            consents: mapped,
+            summary: {
+               ...prev.summary,
+               activeConsents: mapped.filter(c => c.status === 'active').length,
+               withdrawn: mapped.filter(c => c.status === 'withdrawn').length,
+            },
+         }));
+      } catch (err) {
+         console.error('Failed to refresh consents:', err);
+      }
+   };
+
    // Handle consent form submission
    const handleConsentSubmit = async (formData) => {
       const action = consentMode === 'grant' ? 'granted' : 'modified';
-      showToast('success', `Consent ${action} for "${selectedConsent?.title}". Confirmation email sent.`);
+      showToast('success', `Consent ${action} for "${selectedConsent?.title}".`);
       setShowGrantModal(false);
       setSelectedConsent(null);
       // Refresh consent list from backend
@@ -282,7 +318,7 @@ const ConsentManagement = () => {
       if (!withdrawConfirmed || !selectedConsent) return;
 
       try {
-         await consentAPI.revokeConsent(selectedConsent.id);
+         await consentAPI.revokeConsent(selectedConsent.id, withdrawReason);
          // Update local state immediately so UI reflects revocation
          setConsentData(prev => {
             const updated = prev.consents.map(c =>
@@ -300,7 +336,7 @@ const ConsentManagement = () => {
                },
             };
          });
-         showToast('success', `Consent withdrawn for "${selectedConsent.title}". Confirmation email sent.`);
+         showToast('success', `Consent withdrawn for "${selectedConsent.title}".`);
       } catch (err) {
          console.error('Revoke consent failed:', err);
          showToast('error', 'Failed to withdraw consent. Please try again.');
@@ -1069,23 +1105,31 @@ const ConsentManagement = () => {
                         </div>
 
                         {/* Contact Information */}
+                        {(consentData.privacyOfficer.email || consentData.privacyOfficer.phone) && (
                         <div className="mt-8 bg-blue-50 dark:bg-blue-900/20 rounded-xl p-6">
                            <h4 className="font-semibold text-blue-900 dark:text-blue-300 mb-3">Contact Our Privacy Officer</h4>
                            <div className="flex flex-wrap gap-6 text-sm">
+{consentData.privacyOfficer.email && (
                               <div className="flex items-center gap-2 text-blue-700 dark:text-blue-400">
                                  <Mail className="w-4 h-4" />
                                  <span>{consentData.privacyOfficer.email}</span>
                               </div>
+)}
+{consentData.privacyOfficer.phone && (
                               <div className="flex items-center gap-2 text-blue-700 dark:text-blue-400">
                                  <Phone className="w-4 h-4" />
                                  <span>{consentData.privacyOfficer.phone}</span>
                               </div>
+)}
+{consentData.privacyOfficer.hours && (
                               <div className="flex items-center gap-2 text-blue-700 dark:text-blue-400">
                                  <Clock className="w-4 h-4" />
                                  <span>{consentData.privacyOfficer.hours}</span>
                               </div>
+)}
                            </div>
                         </div>
+                        )}
                      </div>
                   )}
                </Card>
@@ -1234,40 +1278,17 @@ const ConsentManagement = () => {
 
                {/* Quick Actions */}
                <Card className="p-6 border border-gray-100 dark:border-slate-700 shadow-soft">
-                  <h3 className="text-lg font-semibold text-gray-800 dark:text-slate-100 mb-4 flex items-center gap-2">
-                     <RefreshCw className="w-5 h-5 text-gray-400 dark:text-slate-500" />
-                     Quick Actions
+                  <h3 className="text-lg font-semibold text-gray-800 dark:text-slate-100 mb-2 flex items-center gap-2">
+                     <Plus className="w-5 h-5 text-gray-400 dark:text-slate-500" />
+                     Share your data with a provider
                   </h3>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                     <button
-                        className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors text-left"
-                        onClick={() => {
-                           const pendingConsent = consentData.consents.find(c => c.status === 'pending');
-                           if (pendingConsent) handleGrantClick(pendingConsent, 'grant');
-                           else showToast('info', 'No pending consents to review');
-                        }}
-                     >
-                        <Clock className="w-6 h-6 text-blue-600 dark:text-blue-400 mb-2" />
-                        <h4 className="font-medium text-gray-800 dark:text-slate-100">Review Pending</h4>
-                        <p className="text-sm text-gray-600 dark:text-slate-300 mt-1">Review and respond to pending consent requests</p>
-                     </button>
-                     <button
-                        className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors text-left"
-                        onClick={() => showToast('success', 'All consents have been reviewed and are up to date')}
-                     >
-                        <CheckCircle className="w-6 h-6 text-green-600 dark:text-green-400 mb-2" />
-                        <h4 className="font-medium text-gray-800 dark:text-slate-100">Review All</h4>
-                        <p className="text-sm text-gray-600 dark:text-slate-300 mt-1">Confirm all current consents are accurate</p>
-                     </button>
-                     <button
-                        className="p-4 bg-purple-50 dark:bg-purple-900/20 rounded-lg hover:bg-purple-100 dark:hover:bg-purple-900/30 transition-colors text-left"
-                        onClick={() => showToast('info', 'Consent summary downloaded')}
-                     >
-                        <FileText className="w-6 h-6 text-purple-600 dark:text-purple-400 mb-2" />
-                        <h4 className="font-medium text-gray-800 dark:text-slate-100">Download Summary</h4>
-                        <p className="text-sm text-gray-600 dark:text-slate-300 mt-1">Get a PDF of all your current consents</p>
-                     </button>
-                  </div>
+                  <p className="text-sm text-gray-600 dark:text-slate-300 mb-4">
+                     Your assigned doctor can always see your clinical data. Other providers need your consent first.
+                  </p>
+                  <Button onClick={() => setShowNewConsent(true)}>
+                     <Plus className="w-4 h-4 mr-2" />
+                     Grant new consent
+                  </Button>
                </Card>
             </>
          )}
@@ -1363,13 +1384,16 @@ const ConsentManagement = () => {
                      </div>
                   </div>
                   <div className="divide-y divide-gray-100 dark:divide-slate-700">
-                     {[
-                        { id: 1, accessor: 'Dr. Sarah Johnson', action: 'Viewed medical history', timestamp: '2026-02-10T09:30:00', type: 'view' },
-                        { id: 2, accessor: 'Lab Results System', action: 'Added new test results', timestamp: '2026-02-09T14:22:00', type: 'add' },
-                        { id: 3, accessor: 'SecureHealth Network', action: 'Synced records with HIE', timestamp: '2026-02-08T11:15:00', type: 'sync' },
-                        { id: 4, accessor: 'Dr. Michael Chen', action: 'Updated prescriptions', timestamp: '2026-02-07T16:45:00', type: 'update' },
-                        { id: 5, accessor: 'Insurance Provider', action: 'Accessed billing information', timestamp: '2026-02-06T10:00:00', type: 'view' }
-                     ].map((log) => (
+                     {accessLog === null && (
+                        <p className="px-6 py-4 text-sm text-gray-500">Loading access log...</p>
+                     )}
+                     {accessLogError && (
+                        <p role="alert" className="px-6 py-4 text-sm text-red-600">Unable to load the access log.</p>
+                     )}
+                     {accessLog !== null && !accessLogError && accessLogView.length === 0 && (
+                        <p className="px-6 py-4 text-sm text-gray-500">No one has accessed your records yet.</p>
+                     )}
+                     {accessLogView.map((log) => (
                         <div key={log.id} className="px-6 py-4 hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors">
                            <div className="flex items-center justify-between">
                               <div className="flex items-center gap-3">
@@ -1414,31 +1438,31 @@ const ConsentManagement = () => {
                      <div className="space-y-3">
                         <button
                            className="w-full p-3 border border-gray-200 dark:border-slate-700 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors flex items-center justify-between"
-                           onClick={() => showToast('success', 'PDF export started. Check your email.')}
+                           disabled title="Coming soon"
                         >
                            <div className="flex items-center gap-3">
                               <FileText className="w-5 h-5 text-red-500 dark:text-red-400" />
-                              <span className="font-medium text-gray-800 dark:text-slate-100">Export as PDF</span>
+                              <span className="font-medium text-gray-800 dark:text-slate-100">Export as PDF <span className="text-xs text-gray-400">(coming soon)</span></span>
                            </div>
                            <ChevronDown className="w-4 h-4 text-gray-400 dark:text-slate-500 rotate-[-90deg]" />
                         </button>
                         <button
                            className="w-full p-3 border border-gray-200 dark:border-slate-700 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors flex items-center justify-between"
-                           onClick={() => showToast('success', 'FHIR export started. Check your email.')}
+                           disabled title="Coming soon"
                         >
                            <div className="flex items-center gap-3">
                               <Database className="w-5 h-5 text-blue-500 dark:text-blue-400" />
-                              <span className="font-medium text-gray-800 dark:text-slate-100">Export as FHIR</span>
+                              <span className="font-medium text-gray-800 dark:text-slate-100">Export as FHIR <span className="text-xs text-gray-400">(coming soon)</span></span>
                            </div>
                            <ChevronDown className="w-4 h-4 text-gray-400 dark:text-slate-500 rotate-[-90deg]" />
                         </button>
                         <button
                            className="w-full p-3 border border-gray-200 dark:border-slate-700 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors flex items-center justify-between"
-                           onClick={() => showToast('success', 'C-CDA export started. Check your email.')}
+                           disabled title="Coming soon"
                         >
                            <div className="flex items-center gap-3">
                               <Archive className="w-5 h-5 text-green-500 dark:text-green-400" />
-                              <span className="font-medium text-gray-800 dark:text-slate-100">Export as C-CDA</span>
+                              <span className="font-medium text-gray-800 dark:text-slate-100">Export as C-CDA <span className="text-xs text-gray-400">(coming soon)</span></span>
                            </div>
                            <ChevronDown className="w-4 h-4 text-gray-400 dark:text-slate-500 rotate-[-90deg]" />
                         </button>
@@ -1469,54 +1493,14 @@ const ConsentManagement = () => {
                      <Button
                         variant="outline"
                         className="w-full text-red-600 dark:text-red-400 border-red-300 dark:border-red-700 hover:bg-red-50 dark:hover:bg-red-900/20"
-                        onClick={() => showToast('info', 'Deletion request form will open in a new window')}
+                        disabled title="Coming soon"
                      >
                         <Trash2 className="w-4 h-4 mr-2" />
-                        Request Data Deletion
+                        Request Data Deletion (coming soon)
                      </Button>
                   </Card>
                </div>
 
-               {/* Connected Apps & Services */}
-               <Card className="overflow-hidden border border-gray-100 dark:border-slate-700 shadow-soft">
-                  <div className="px-6 py-5 border-b border-gray-100 dark:border-slate-700 bg-white dark:bg-slate-800">
-                     <h3 className="text-lg font-bold text-gray-800 dark:text-slate-100 flex items-center gap-2">
-                        <Network className="w-5 h-5 text-gray-400 dark:text-slate-500" />
-                        Connected Apps & Services
-                     </h3>
-                  </div>
-                  <div className="divide-y divide-gray-100 dark:divide-slate-700">
-                     {[
-                        { id: 1, name: 'MyChart Mobile App', type: 'Mobile App', connected: '2025-06-15', status: 'active' },
-                        { id: 2, name: 'Apple Health', type: 'Health Sync', connected: '2025-08-22', status: 'active' },
-                        { id: 3, name: 'Fitbit', type: 'Fitness Tracker', connected: '2025-09-10', status: 'active' }
-                     ].map((app) => (
-                        <div key={app.id} className="px-6 py-4 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors">
-                           <div className="flex items-center gap-3">
-                              <div className="w-10 h-10 bg-gray-100 dark:bg-slate-700 rounded-lg flex items-center justify-center">
-                                 <Monitor className="w-5 h-5 text-gray-600 dark:text-slate-300" />
-                              </div>
-                              <div>
-                                 <p className="font-medium text-gray-800 dark:text-slate-100">{app.name}</p>
-                                 <p className="text-sm text-gray-500 dark:text-slate-400">{app.type} • Connected {formatDate(app.connected)}</p>
-                              </div>
-                           </div>
-                           <div className="flex items-center gap-3">
-                              <Badge className="bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300">Active</Badge>
-                              <Button variant="outline" size="sm" className="p-2 text-red-600 dark:text-red-400 border-red-300 dark:border-red-700 hover:bg-red-50 dark:hover:bg-red-900/20" title="Revoke Access">
-                                 <X className="w-4 h-4" />
-                              </Button>
-                           </div>
-                        </div>
-                     ))}
-                  </div>
-                  <div className="px-6 py-4 bg-gray-50 dark:bg-slate-800/50 border-t border-gray-100 dark:border-slate-700">
-                     <Button variant="outline" className="w-full">
-                        <Plus className="w-4 h-4 mr-2" />
-                        Connect New App
-                     </Button>
-                  </div>
-               </Card>
             </>
          )}
 
@@ -1577,17 +1561,6 @@ const ConsentManagement = () => {
                            />
                            <span className="text-sm text-gray-700 dark:text-slate-200">Immediately</span>
                         </label>
-                        <label className="flex items-center gap-2">
-                           <input
-                              type="radio"
-                              name="effective"
-                              value="specific"
-                              checked={withdrawEffective === 'specific'}
-                              onChange={(e) => setWithdrawEffective(e.target.value)}
-                              className="text-blue-600 dark:text-blue-400"
-                           />
-                           <span className="text-sm text-gray-700 dark:text-slate-200">On a specific date</span>
-                        </label>
                      </div>
                   </div>
 
@@ -1637,6 +1610,12 @@ const ConsentManagement = () => {
             </Modal>
          )}
 
+         <NewConsentModal
+            isOpen={showNewConsent}
+            onClose={() => setShowNewConsent(false)}
+            onGranted={handleNewConsentGranted}
+         />
+
          {/* Grant/Modify Consent Slide-in Panel */}
          <GrantModifyConsent
             isOpen={showGrantModal}
@@ -1644,7 +1623,7 @@ const ConsentManagement = () => {
                setShowGrantModal(false);
                setSelectedConsent(null);
             }}
-            category={selectedConsent ? getFormCategory(selectedConsent.id) : 'research'}
+            category={getFormCategory()}
             mode={consentMode}
             existingSelections={consentMode === 'modify' && selectedConsent ? {
                [selectedConsent.id]: true

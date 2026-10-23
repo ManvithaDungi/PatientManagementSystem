@@ -33,6 +33,7 @@ const PatientDetail = () => {
     const [latestVitals, setLatestVitals] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
     const [loadError, setLoadError] = useState(null);
+    const [restricted, setRestricted] = useState([]);
     const [isRxModalOpen, setIsRxModalOpen] = useState(false);
     const [isTreatmentModalOpen, setIsTreatmentModalOpen] = useState(false);
     const [isVitalsModalOpen, setIsVitalsModalOpen] = useState(false);
@@ -45,13 +46,20 @@ const PatientDetail = () => {
         setIsLoading(true);
         setLoadError(null);
         try {
+            const restrictedSections = [];
+            // A 403 means "no consent on file", which must not look like "no data".
+            const guarded = (label, promise, fallback) => promise.catch((err) => {
+                if (err && err.status === 403) restrictedSections.push(label);
+                return fallback;
+            });
             const [patientData, rxData, historyData, labData, vitalsData] = await Promise.all([
                 api.patients.getById(id),
-                api.prescriptions.getByPatient(id).catch(() => []),
-                api.medicalRecords.getByPatient(id).catch(() => []),
-                api.labResults.getByPatient(id).catch(() => []),
-                api.vitalSigns.getLatest(id).catch(() => null),
+                guarded('prescriptions', api.prescriptions.getByPatient(id), []),
+                guarded('medical records', api.medicalRecords.getByPatient(id), []),
+                guarded('lab results', api.labResults.getByPatient(id), []),
+                guarded('vital signs', api.vitalSigns.getLatest(id), null),
             ]);
+            setRestricted(restrictedSections);
             setPatient(patientData);
             setPrescriptions(Array.isArray(rxData) ? rxData : []);
             setMedicalHistory(Array.isArray(historyData) ? historyData : []);
@@ -120,6 +128,12 @@ const PatientDetail = () => {
                     <Badge type="green">Active</Badge>
                 </div>
             </div>
+
+            {restricted.length > 0 && (
+                <div role="alert" className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-sm rounded p-3">
+                    Access not granted for: {restricted.join(', ')}. These sections are hidden because the patient has not given you consent, not because they are empty.
+                </div>
+            )}
 
             {/* Tabs */}
             <div className="border-b border-gray-200 dark:border-slate-700">

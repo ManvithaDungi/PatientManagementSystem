@@ -139,13 +139,14 @@ describe('ConsentManagement', () => {
       expect(downloadButton).toBeInTheDocument();
    });
 
-   test('displays quick actions on modify consent tab', async () => {
+   test('lets the patient grant a first consent from the modify tab', async () => {
       render(<ConsentManagement />);
-      const modifyTab = await screen.findByText('Modify Consent');
-      fireEvent.click(modifyTab);
-      expect(await screen.findByText(/quick actions/i)).toBeInTheDocument();
-      expect(await screen.findByText(/review pending/i)).toBeInTheDocument();
-      expect(await screen.findByText(/review all/i)).toBeInTheDocument();
-      expect(await screen.findByText(/download summary/i)).toBeInTheDocument();
+      fireEvent.click(await screen.findByText('Modify Consent'));
+      expect(await screen.findByText(/share your data with a provider/i)).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: /grant new consent/i }));
+      expect(await screen.findByText(/grant access to a provider/i)).toBeInTheDocument();
+      expect(screen.getByLabelText('Provider')).toBeInTheDocument();
+      expect(screen.getByLabelText('Data to share')).toBeInTheDocument();
    });
 });

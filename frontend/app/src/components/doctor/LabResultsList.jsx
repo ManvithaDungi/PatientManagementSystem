@@ -4,6 +4,7 @@ import Card from '../common/Card';
 import Badge from '../common/Badge';
 import Button from '../common/Button';
 import LabTestModal from './LabTestModal';
+import { isAbnormal, normalizeStatus, statusBadgeType } from '../../utils/labRange';
 
 const LabResultsList = ({ labs, patientId, onAdd }) => {
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -35,10 +36,19 @@ const LabResultsList = ({ labs, patientId, onAdd }) => {
     }
 
     const getStatusIcon = (status) => {
-        const s = status?.toLowerCase();
-        if (s === 'completed' || s === 'normal') return <CheckCircle size={16} className="text-green-500" />;
-        if (s === 'pending') return <Clock size={16} className="text-yellow-500" />;
-        return <AlertTriangle size={16} className="text-red-500" />;
+        switch (normalizeStatus(status)) {
+            case 'completed':
+            case 'normal':
+                return <CheckCircle size={16} className="text-green-500" />;
+            case 'pending':
+                return <Clock size={16} className="text-yellow-500" />;
+            case 'collected':
+                return <Clock size={16} className="text-blue-500" />;
+            case 'results pending':
+                return <Clock size={16} className="text-indigo-500" />;
+            default:
+                return <AlertTriangle size={16} className="text-gray-400" />;
+        }
     };
 
     return (
@@ -57,9 +67,10 @@ const LabResultsList = ({ labs, patientId, onAdd }) => {
                     const displayName = lab.name || lab.testName || 'Unknown Test';
                     const orderedDate = lab.orderedDate || (lab.orderedAt ? new Date(lab.orderedAt).toLocaleDateString() : 'N/A');
                     const fileUrl = lab.file || lab.fileUrl;
-                    const isPending = lab.status?.toLowerCase() === 'pending';
+                    const isPending = normalizeStatus(lab.status) === 'pending';
+                    const abnormal = isAbnormal(lab);
                     const statusLabel = lab.status || 'Unknown';
-                    const badgeType = lab.status?.toLowerCase() === 'normal' || lab.status?.toLowerCase() === 'completed' ? 'green' : isPending ? 'yellow' : 'red';
+                    const badgeType = statusBadgeType(lab.status);
                     return (
                     <Card key={lab.id ?? lab.testId ?? index} className="p-4 flex flex-col md:flex-row justify-between items-start md:items-center group hover:border-blue-300 dark:hover:border-blue-600 transition-colors">
                         <div className="flex items-start gap-4">
@@ -79,6 +90,11 @@ const LabResultsList = ({ labs, patientId, onAdd }) => {
                                     <Badge type={badgeType}>
                                         {statusLabel}
                                     </Badge>
+                                    {abnormal && (
+                                        <Badge type="red">
+                                            Abnormal (outside {lab.referenceRange}{lab.unit ? ` ${lab.unit}` : ''})
+                                        </Badge>
+                                    )}
                                 </div>
                             </div>
                         </div>

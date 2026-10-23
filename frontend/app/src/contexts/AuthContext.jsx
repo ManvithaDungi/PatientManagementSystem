@@ -44,7 +44,7 @@ export const AuthProvider = ({ children }) => {
     try {
       const result = await authService.signIn(email, password);
       if (result.status === 'OTP_REQUIRED') {
-        return { success: false, status: 'OTP_REQUIRED' };
+        return { success: false, status: 'OTP_REQUIRED', pendingToken: result.pendingToken };
       }
       if (result.success) {
         setUser(result.user);
@@ -68,8 +68,7 @@ export const AuthProvider = ({ children }) => {
     try {
       const result = await authService.signUp(email, password, userData);
       if (result.success) {
-        setUser(result.user);
-        setSession(result.session);
+        // Registration does not sign the user in; they continue to the sign-in page.
         return { success: true };
       } else {
         setError(result.error);

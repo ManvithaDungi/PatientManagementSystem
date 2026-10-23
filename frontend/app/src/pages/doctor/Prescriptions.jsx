@@ -46,21 +46,13 @@ const Prescriptions = () => {
             const doctorPatients = await api.doctors.getPatients(doctorId);
             setPatients(doctorPatients);
 
-            // Get prescriptions for all patients
-            const allPrescriptions = [];
-            for (const patient of doctorPatients) {
-                try {
-                    const patientPrescriptions = await api.prescriptions.getByPatient(patient.id);
-                    const enriched = (patientPrescriptions || []).map(rx => ({
-                        ...rx,
-                        patientName: `${patient.firstName} ${patient.lastName}`,
-                        patientId: patient.id,
-                    }));
-                    allPrescriptions.push(...enriched);
-                } catch (err) {
-                    console.error(`Failed to load prescriptions for patient ${patient.id}`);
-                }
-            }
+            // One request for all of this doctor's prescriptions (previously one request per patient)
+            const mine = await api.prescriptions.getMine();
+            const nameById = new Map(doctorPatients.map((p) => [p.id, `${p.firstName} ${p.lastName}`]));
+            const allPrescriptions = (mine || []).map((rx) => ({
+                ...rx,
+                patientName: rx.patientName || nameById.get(rx.patientId) || 'Unknown patient',
+            }));
             setPrescriptions(allPrescriptions);
         } catch (err) {
             console.error('Failed to load prescriptions:', err);
@@ -100,7 +92,6 @@ const Prescriptions = () => {
                 frequency: newRxData.frequency,
                 duration: newRxData.duration || '7 days',
                 specialInstructions: newRxData.notes || '',
-                startDate: new Date().toISOString().split('T')[0],
                 refillsAllowed: 0
             };
 
@@ -134,12 +125,22 @@ const Prescriptions = () => {
             setIsLoading(true);
             setError(null);
 
+            // Nothing is shown as changed until the server has confirmed it.
+            await api.prescriptions.update(selectedRx.prescriptionId, {
+                dosage: editRxData.dosage,
+                frequency: editRxData.frequency,
+            });
+            let status = selectedRx.status;
+            if (selectedRx.status === 'ACTIVE' && !editRxData.active) {
+                const updated = await api.prescriptions.updateStatus(selectedRx.prescriptionId, 'CANCELLED');
+                status = updated?.status || 'CANCELLED';
+            }
             const updatedPrescription = {
                 ...selectedRx,
-                ...editRxData
+                dosage: editRxData.dosage,
+                frequency: editRxData.frequency,
+                status,
             };
-
-            await api.prescriptions.update(selectedRx.prescriptionId, editRxData);
             setPrescriptions(prescriptions.map(rx =>
                 rx.prescriptionId === selectedRx.prescriptionId ? updatedPrescription : rx
             ));

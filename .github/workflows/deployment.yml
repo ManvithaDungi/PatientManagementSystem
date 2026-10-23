@@ -1,25 +1,44 @@
-name: Deploy Backend
+name: Deploy
 
+# Runs only after the CI workflow has succeeded on main. Nothing is deployed from a failed build.
 on:
-  push:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
     branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
 
 jobs:
   deploy:
+    name: Deploy to server
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
-
+    environment: production
     steps:
-      - name: SSH into EC2 and deploy
-        uses: appleboy/ssh-action@master
+      # Host, user and key come from repository/environment secrets; nothing is hard-coded here.
+      # Required secrets: DEPLOY_HOST, DEPLOY_USER, DEPLOY_SSH_KEY. Optional: DEPLOY_PATH (default ~/PatientManagementSystem).
+      - name: Deploy over SSH
+        env:
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+        uses: appleboy/ssh-action@7eaf76671a0d7eec5d98ee897acda4f968735a17 # v1.2.0
         with:
-          host: 54.252.217.169
-          username: ubuntu
-          key: ${{ secrets.EC2_SECRETKEY }}
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script_stop: true
+          envs: DEPLOY_PATH
           script: |
-            cd ~/PatientManagementSystem
-            git pull origin main
-            sudo docker-compose down
-            sudo docker-compose up -d --build
-            cd frontend/app
-            NODE_OPTIONS="--max-old-space-size=2048" npm run build
-            pm2 start serve --name "patient-frontend" -- -s build -l 3000
+            cd "${DEPLOY_PATH:-$HOME/PatientManagementSystem}"
+            git fetch origin main
+            git checkout main
+            git merge --ff-only "${{ github.event.workflow_run.head_sha }}"
+            # The whole stack (including the nginx-served frontend on port 3000) comes from Compose v2.
+            docker compose pull --ignore-buildable
+            docker compose up -d --build --remove-orphans
+            docker compose ps

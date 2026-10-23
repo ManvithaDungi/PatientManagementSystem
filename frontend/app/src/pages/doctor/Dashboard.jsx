@@ -11,6 +11,7 @@ import MiniCalendar from '../../components/MiniCalendar';
 import api from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { getFullName } from '../../utils/formatters';
+import { isAbnormal, normalizeStatus } from '../../utils/labRange';
 
 
 const DoctorDashboard = () => {
@@ -25,6 +26,7 @@ const DoctorDashboard = () => {
    // State for data
    const [patients, setPatients] = useState([]);
    const [appointments, setAppointments] = useState([]);
+   const [labs, setLabs] = useState([]);
 
    // Fetch data from API
    useEffect(() => {
@@ -36,12 +38,14 @@ const DoctorDashboard = () => {
          setError(null);
          try {
             // Fetch doctor's patients and appointments in parallel
-            const [patientsData, appointmentsData] = await Promise.all([
+            const [patientsData, appointmentsData, labsData] = await Promise.all([
                api.doctors.getPatients(doctorId),
-               api.appointments.getByDoctor(doctorId)
+               api.appointments.getByDoctor(doctorId),
+               api.labResults.getAll()
             ]);
-            
+
             setPatients(patientsData || []);
+            setLabs(Array.isArray(labsData) ? labsData : []);
             setAppointments((appointmentsData || []).map(a => ({
                id: a.appointmentId,
                date: a.appointmentDate,
@@ -74,6 +78,10 @@ const DoctorDashboard = () => {
    const todaysAppointments = appointments.filter(a => 
       a.date && a.date.split('T')[0] === today
    ).length;
+
+   // Orders still waiting for a published result, and published results outside their range
+   const pendingLabs = labs.filter(l => normalizeStatus(l.status) !== 'completed').length;
+   const abnormalLabs = labs.filter(isAbnormal).length;
 
    return (
       <div className="space-y-4">
@@ -123,7 +131,7 @@ const DoctorDashboard = () => {
             <Card className="p-3 border border-gray-100 dark:border-slate-700 shadow-soft hover:shadow-lg transition-shadow duration-300 flex items-center justify-between group dark:bg-slate-800">
                <div>
                   <h3 className="text-gray-500 dark:text-slate-400 text-xs font-medium">Pending Labs</h3>
-                  <p className="text-xl font-bold text-gray-800 dark:text-slate-100 mt-1 group-hover:text-brand-medium transition-colors">5</p>
+                  <p className="text-xl font-bold text-gray-800 dark:text-slate-100 mt-1 group-hover:text-brand-medium transition-colors">{pendingLabs}</p>
                </div>
                <div className="w-8 h-8 bg-yellow-50 dark:bg-yellow-900/20 rounded-full flex items-center justify-center text-yellow-600 group-hover:scale-110 transition-transform">
                   <Activity className="w-4 h-4" />
@@ -233,8 +241,7 @@ const DoctorDashboard = () => {
                   <AppointmentList appointments={appointments.slice(0, 5)} />
                </Card>
 
-               {/* Notifications/Alerts (Simplified) */}
-               {/* Notifications/Alerts - Daily Briefing */}
+               {/* Daily briefing: real counts only */}
                <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-blue-600 to-blue-800 shadow-xl shadow-blue-900/20 group">
                   {/* Decorative Background Elements */}
                   <div className="absolute top-0 right-0 -mr-8 -mt-8 w-32 h-32 bg-white/10 rounded-full blur-2xl group-hover:scale-110 transition-transform duration-700"></div>
@@ -248,18 +255,18 @@ const DoctorDashboard = () => {
                         </div>
                         <div>
                            <h3 className="font-bold text-white text-lg leading-tight">Daily Briefing</h3>
-                           <p className="text-blue-100 text-xs font-medium">Tuesday, 24 Oct</p>
+                           <p className="text-blue-100 text-xs font-medium">{new Date().toLocaleDateString('en-US', { weekday: 'long', day: 'numeric', month: 'short' })}</p>
                         </div>
                      </div>
 
                      <div className="space-y-3 mb-5">
                         <div className="flex items-start gap-2 text-blue-50 text-sm">
                            <div className="w-1.5 h-1.5 rounded-full bg-red-400 mt-1.5 shadow-[0_0_8px_rgba(248,113,113,0.6)]"></div>
-                           <p className="leading-snug"><span className="font-semibold text-white">3 High-priority</span> lab results require your immediate review.</p>
+                           <p className="leading-snug"><span className="font-semibold text-white">{abnormalLabs} abnormal</span> lab {abnormalLabs === 1 ? 'result' : 'results'} to review.</p>
                         </div>
                         <div className="flex items-start gap-2 text-blue-50 text-sm">
                            <div className="w-1.5 h-1.5 rounded-full bg-yellow-400 mt-1.5"></div>
-                           <p className="leading-snug">2 Patient inquiries pending from yesterday.</p>
+                           <p className="leading-snug">{pendingLabs} lab {pendingLabs === 1 ? 'order' : 'orders'} awaiting results.</p>
                         </div>
                      </div>
 

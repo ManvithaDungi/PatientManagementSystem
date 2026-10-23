@@ -1,16 +1,29 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
 import {
-    Menu, Search, Bell, Sun, Moon
+    Menu, Search, Sun, Moon
 } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import Sidebar from '../components/layout/Sidebar';
+import NotificationBell from '../components/layout/NotificationBell';
+import SessionTimeout from '../components/security/SessionTimeout';
+import api from '../services/api';
+
+// The server ends a session after 30 idle minutes. Warn one minute before, and while the user is
+// active keep the server-side idle timer alive with a light request every few minutes.
+const IDLE_LIMIT_MS = 30 * 60 * 1000;
+const WARNING_MS = 60 * 1000;
+const KEEP_ALIVE_MS = 5 * 60 * 1000;
+const ACTIVITY_EVENTS = ['mousedown', 'keydown', 'touchstart', 'scroll', 'mousemove'];
 
 const DashboardLayout = ({ role, userName = "User" }) => {
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const [isCollapsed, setIsCollapsed] = useState(false);
-    const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+    const [idleWarning, setIdleWarning] = useState(false);
+    const lastActivity = useRef(Date.now());
+    const lastKeepAlive = useRef(Date.now());
+    const warningRef = useRef(false);
     const { isDark, toggleTheme } = useTheme();
     const { logout } = useAuth();
     const navigate = useNavigate();
@@ -27,6 +40,41 @@ const DashboardLayout = ({ role, userName = "User" }) => {
         }
     };
 
+    const extendSession = useCallback(async () => {
+        try {
+            await api.auth.getCurrentUser();
+            lastActivity.current = Date.now();
+            lastKeepAlive.current = Date.now();
+            warningRef.current = false;
+            setIdleWarning(false);
+        } catch (error) {
+            // A 401 here already redirects to the login page.
+        }
+    }, []);
+
+    useEffect(() => {
+        const markActive = () => {
+            if (!warningRef.current) {
+                lastActivity.current = Date.now();
+            }
+        };
+        ACTIVITY_EVENTS.forEach((e) => window.addEventListener(e, markActive, { passive: true }));
+        const timer = setInterval(() => {
+            const idle = Date.now() - lastActivity.current;
+            if (idle >= IDLE_LIMIT_MS - WARNING_MS) {
+                warningRef.current = true;
+                setIdleWarning(true);
+            } else if (Date.now() - lastKeepAlive.current >= KEEP_ALIVE_MS) {
+                lastKeepAlive.current = Date.now();
+                api.auth.getCurrentUser().catch(() => {});
+            }
+        }, 15 * 1000);
+        return () => {
+            ACTIVITY_EVENTS.forEach((e) => window.removeEventListener(e, markActive));
+            clearInterval(timer);
+        };
+    }, []);
+
     return (
         <div className="flex h-screen bg-gray-50 dark:bg-slate-900 transition-colors duration-200">
             {/* Mobile Sidebar Overlay */}
@@ -36,6 +84,8 @@ const DashboardLayout = ({ role, userName = "User" }) => {
                     onClick={() => setIsSidebarOpen(false)}
                 ></div>
             )}
+
+            <SessionTimeout isActive={idleWarning} onLogout={handleLogout} onExtend={extendSession} />
 
             <Sidebar
                 role={role}
@@ -89,31 +139,7 @@ const DashboardLayout = ({ role, userName = "User" }) => {
                                 {isDark ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
                             </button>
 
-                            <div className="relative">
-                                <button
-                                    onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
-                                    className="relative p-2 text-gray-500 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
-                                >
-                                    <Bell className="w-5 h-5" />
-                                </button>
-
-                                {isNotificationsOpen && (
-                                    <div className="absolute right-0 mt-2 w-80 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-gray-100 dark:border-slate-700 py-2 z-50 animate-in fade-in zoom-in-95 duration-200">
-                                        <div className="px-4 py-3 border-b border-gray-100 dark:border-slate-700 flex justify-between items-center">
-                                            <h3 className="font-semibold text-gray-900 dark:text-slate-100">Notifications</h3>
-                                            <button
-                                                className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700"
-                                                onClick={() => setIsNotificationsOpen(false)}
-                                            >
-                                                Close
-                                            </button>
-                                        </div>
-                                        <div className="px-4 py-6 text-center text-sm text-gray-500 dark:text-slate-400">
-                                            No new notifications
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
+                            <NotificationBell />
                         </div>
                     </div>
                 </header>

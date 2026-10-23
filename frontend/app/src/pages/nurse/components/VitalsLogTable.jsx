@@ -1,7 +1,6 @@
 import React from 'react';
 import { Search, Printer, Download, AlertTriangle } from 'lucide-react';
 import Card from '../../../components/common/Card';
-import Button from '../../../components/common/Button';
 import IconButton from '../../../components/common/IconButton';
 
 const VitalsLogTable = ({

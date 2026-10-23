@@ -3,6 +3,7 @@ import { Search } from 'lucide-react';
 import Card from '../../components/common/Card';
 import LabResultsList from '../../components/doctor/LabResultsList';
 import api from '../../services/api';
+import { isAbnormal, normalizeStatus } from '../../utils/labRange';
 
 const LabResults = () => {
     const [searchTerm, setSearchTerm] = useState('');
@@ -26,7 +27,8 @@ const LabResults = () => {
     const filteredLabs = labs.filter(lab => {
         const labName = (lab.name || lab.testName || '').toLowerCase();
         const matchesSearch = labName.includes(searchTerm.toLowerCase());
-        const matchesFilter = filter === 'All' || lab.status?.toLowerCase() === filter.toLowerCase();
+        const matchesFilter = filter === 'All'
+            || (filter === 'Abnormal' ? isAbnormal(lab) : normalizeStatus(lab.status) === normalizeStatus(filter));
         return matchesSearch && matchesFilter;
     });
 
@@ -53,7 +55,7 @@ const LabResults = () => {
                     </div>
 
                     <div className="flex gap-1 w-full md:w-auto overflow-x-auto">
-                        {['All', 'Completed', 'Pending', 'Abnormal'].map(status => (
+                        {['All', 'Pending', 'Collected', 'Results Pending', 'Completed', 'Abnormal'].map(status => (
                             <button
                                 key={status}
                                 onClick={() => setFilter(status)}

@@ -93,7 +93,8 @@ const PatientAppointments = () => {
             api.catalog.getHospitalDepartments().catch(() => [])
          ]);
          setAppointments((appointmentsData || []).map(normalizeAppointment));
-         setDoctors(doctorsData);
+         // Appointments are keyed by the doctor's login id (userId), not the profile id.
+         setDoctors((doctorsData || []).map(d => ({ ...d, id: d.userId ?? d.id })));
          setDepartments(departmentsData || []);
       } catch (err) {
          console.error('Failed to load appointments:', err);
@@ -175,7 +176,7 @@ const PatientAppointments = () => {
       }
       
       // Find the selected department name
-      const selectedDept = departments.find(dept => dept.id == requestForm.department);
+      const selectedDept = departments.find(dept => String(dept.id) === String(requestForm.department));
       if (!selectedDept) return doctors;
       
       // Get department name for filtering

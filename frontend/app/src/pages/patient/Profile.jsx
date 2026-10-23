@@ -29,7 +29,10 @@ const PatientProfile = () => {
         setEditData({ contactNumber: data.contactNumber || '', address: data.address || '', dateOfBirth: data.dateOfBirth || '' });
         if (data.assignedDoctorId) {
           try {
-            const doctor = await api.doctors.getById(data.assignedDoctorId);
+            // assignedDoctorId is a login id; /doctors/{id} expects a profile id, so resolve via the list.
+            const doctors = await api.doctors.getAll();
+            const doctor = (doctors || []).find(d => String(d.userId) === String(data.assignedDoctorId));
+            if (!doctor) throw new Error('Doctor not found');
             setDoctorName(`Dr. ${doctor.firstName || ''} ${doctor.lastName || ''}`.trim());
           } catch {
             setDoctorName(`Doctor #${data.assignedDoctorId}`);

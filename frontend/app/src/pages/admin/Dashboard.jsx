@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
-import { Users, AlertCircle, FileText, LayoutDashboard } from 'lucide-react';
+import { Users, AlertCircle, FileText, LayoutDashboard, UserCheck } from 'lucide-react';
 
 import SystemOverview from './components/SystemOverview';
 import UserManagement from './components/UserManagement';
+import CareTeamManagement from './components/CareTeamManagement';
 import CompliancePanel from './components/CompliancePanel';
-import IncidentManagement from './components/IncidentManagement';
 import AuditLogs from './components/AuditLogs';
 import SystemHealth from './components/SystemHealth';
 import AppointmentApprovalQueue from '../../components/admin/AppointmentApprovalQueue';
@@ -32,8 +32,8 @@ const AdminDashboard = () => {
             return <div className="animate-fade-in"><AppointmentApprovalQueue /></div>;
          case 'users':
             return <div className="animate-fade-in"><UserManagement /></div>;
-         case 'incidents':
-            return <div className="animate-fade-in"><IncidentManagement /></div>;
+         case 'careteams':
+            return <div className="animate-fade-in"><CareTeamManagement /></div>;
          case 'audit':
             return <div className="animate-fade-in"><AuditLogs /></div>;
          default:
@@ -65,12 +65,6 @@ const AdminDashboard = () => {
                <h1 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight">Admin Console</h1>
                <p className="text-slate-500 dark:text-slate-400">Secure System Monitoring & Compliance Hub</p>
             </div>
-            <div className="flex items-center gap-3">
-               <span className="px-3 py-1 rounded-full bg-admin-success/10 text-admin-success text-xs font-bold border border-admin-success/20">
-                  System Secure
-               </span>
-               <span className="text-sm text-slate-400">Last updated: Just now</span>
-            </div>
          </div>
 
          {/* Navigation Tabs */}
@@ -79,7 +73,7 @@ const AdminDashboard = () => {
                <TabButton id="overview" label="Overview" icon={LayoutDashboard} />
                <TabButton id="appointments" label="Appointment Approvals" icon={AlertCircle} />
                <TabButton id="users" label="User Management" icon={Users} />
-               <TabButton id="incidents" label="Incidents" icon={AlertCircle} />
+               <TabButton id="careteams" label="Care Teams" icon={UserCheck} />
                <TabButton id="audit" label="Audit Logs" icon={FileText} />
             </div>
          </div>

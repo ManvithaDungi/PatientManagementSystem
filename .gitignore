@@ -10,3 +10,30 @@ node_modules/
 # Testing reference documents (local only)
 frontend/app/TESTING_PRESENTATION_GUIDE.md
 frontend/app/FRONTEND_TEST_ANALYSIS.md
+
+# Runtime and debugging artefacts (never commit)
+api_logs.txt
+logs.txt
+*.log
+test_payload.json
+frontend/app/test-output.txt
+frontend/app/test-results.txt
+frontend/app/test_output.txt
+frontend/app/test_results.txt
+frontend/app/medtest.log
+
+# IDE files
+.idea/
+**/.idea/
+*.iml
+
+# Local environment files
+frontend/app/.env
+.env.*
+!.env.example
+
+# Build output
+frontend/app/build/
+backend/logs/
+backend/uploads/
+backend/backups/

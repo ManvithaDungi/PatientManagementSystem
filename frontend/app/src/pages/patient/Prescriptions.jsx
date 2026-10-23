@@ -41,8 +41,8 @@ const PatientPrescriptions = () => {
       alert(`Refill request sent for ${medName}. Your pharmacy will be notified.`);
    };
 
-   const activeRx = prescriptions.filter(p => p.active || p.status === 'ACTIVE');
-   const historyRx = prescriptions.filter(p => !p.active && p.status !== 'ACTIVE');
+   const activeRx = prescriptions.filter(p => p.status === 'ACTIVE');
+   const historyRx = prescriptions.filter(p => p.status !== 'ACTIVE');
 
    if (isLoading) {
       return <div className="p-6 text-center text-gray-500 dark:text-slate-400">Loading prescriptions...</div>;
@@ -83,8 +83,8 @@ const PatientPrescriptions = () => {
                            <span className="font-medium text-gray-800 dark:text-slate-100">{rx.frequency}</span>
                         </div>
                         <div className="flex justify-between text-xs">
-                           <span className="text-gray-500 dark:text-slate-400">Next Refill:</span>
-                           <span className="font-medium text-gray-800 dark:text-slate-100">In 5 days</span>
+                           <span className="text-gray-500 dark:text-slate-400">Refills remaining:</span>
+                           <span className="font-medium text-gray-800 dark:text-slate-100">{rx.refillsRemaining ?? 0}</span>
                         </div>
                      </div>
 

@@ -1,0 +1,9 @@
+**/node_modules
+app/build
+app/.env
+app/.env.*
+app/*.log
+app/test*.txt
+app/medtest.log
+app/coverage
+**/.git

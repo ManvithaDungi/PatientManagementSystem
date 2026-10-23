@@ -145,7 +145,7 @@ describe('TwoFactorAuth Page', () => {
         await userEvent.type(inputs[5], '6');
         
         await waitFor(() => {
-            expect(verifyOtp).toHaveBeenCalledWith('test@example.com', '123456');
+            expect(verifyOtp).toHaveBeenCalledWith('test@example.com', '123456', undefined);
         });
     });
 

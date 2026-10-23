@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Calendar, Clock, MapPin, User, FileText, Activity, Phone, Mail } from 'lucide-react';
+import { X, Calendar, Clock, MapPin, User, FileText, Activity } from 'lucide-react';
 import Button from './common/Button';
 import Badge from './common/Badge';
 
@@ -58,19 +58,6 @@ const AppointmentSidePanel = ({ appointment, onClose, onAction }) => {
                <div className="flex items-center text-gray-700 dark:text-slate-300">
                   <User className="w-5 h-5 text-gray-400 dark:text-slate-500 mr-3" />
                   <span className="font-medium">{appointment.doctorName}</span>
-               </div>
-            </div>
-
-            {/* Contact (Mock Data) */}
-            <div className="space-y-4">
-               <h4 className="text-sm font-bold text-gray-400 dark:text-slate-500 uppercase tracking-wider">Patient Contact</h4>
-               <div className="flex items-center text-gray-600 dark:text-slate-400">
-                  <Phone className="w-4 h-4 mr-3" />
-                  <span className="text-sm">555-0123</span>
-               </div>
-               <div className="flex items-center text-gray-600 dark:text-slate-400">
-                  <Mail className="w-4 h-4 mr-3" />
-                  <span className="text-sm text-blue-600 dark:text-blue-400 hover:underline cursor-pointer">patient@example.com</span>
                </div>
             </div>
 

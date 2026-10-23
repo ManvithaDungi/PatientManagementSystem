@@ -76,7 +76,7 @@ const PatientDashboard = () => {
       .slice(0, 3);
 
    const pendingLabs = labs.filter(l => l.status === 'PENDING' || l.status === 'Pending');
-   const activeMedications = prescriptions.filter(p => p.active || p.status === 'ACTIVE');
+   const activeMedications = prescriptions.filter(p => p.status === 'ACTIVE');
    const recentDiagnoses = diagnoses
       .slice()
       .sort((a, b) => new Date(b.recordDate || b.createdAt) - new Date(a.recordDate || a.createdAt))

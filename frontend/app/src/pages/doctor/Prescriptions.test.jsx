@@ -24,9 +24,10 @@ jest.mock('../../services/api', () => ({
       getPatients: jest.fn(),
    },
    prescriptions: {
-      getByPatient: jest.fn(),
+      getMine: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
+      updateStatus: jest.fn(),
    },
 }));
 
@@ -39,25 +40,10 @@ describe('Prescriptions Page', () => {
          { id: 'P001', firstName: 'John', lastName: 'Smith' },
          { id: 'P002', firstName: 'Jane', lastName: 'Doe' },
       ]);
-      api.prescriptions.getByPatient
-         .mockResolvedValueOnce([
-            {
-               prescriptionId: 'RX001',
-               medicationName: 'Amoxicillin',
-               dosage: '500mg',
-               frequency: '3x daily',
-               status: 'ACTIVE',
-            }
-         ])
-         .mockResolvedValueOnce([
-            {
-               prescriptionId: 'RX002',
-               medicationName: 'Ibuprofen',
-               dosage: '200mg',
-               frequency: 'As needed',
-               status: 'DISCONTINUED',
-            }
-         ]);
+      api.prescriptions.getMine.mockResolvedValue([
+         { prescriptionId: 'RX001', patientId: 'P001', medicationName: 'Amoxicillin', dosage: '500mg', frequency: '3x daily', status: 'ACTIVE' },
+         { prescriptionId: 'RX002', patientId: 'P002', medicationName: 'Ibuprofen', dosage: '200mg', frequency: 'As needed', status: 'DISCONTINUED' },
+      ]);
    });
 
    test('renders prescriptions list', async () => {
@@ -87,5 +73,31 @@ describe('Prescriptions Page', () => {
       expect(screen.getByTestId('modal')).toBeInTheDocument();
       const modal = screen.getByTestId('modal');
       expect(modal).toHaveTextContent('New Prescription');
+   });
+   test('discontinuing calls the status endpoint and sends only the editable fields', async () => {
+      api.prescriptions.update.mockResolvedValue({});
+      api.prescriptions.updateStatus.mockResolvedValue({ status: 'CANCELLED' });
+      render(<Prescriptions />, { authValue });
+      await screen.findByText('Amoxicillin');
+
+      fireEvent.click(screen.getAllByText('Manage')[0]);
+      fireEvent.change(screen.getByDisplayValue('Active'), { target: { value: 'false' } });
+      fireEvent.click(screen.getByText('Update Prescription'));
+
+      await waitFor(() => expect(api.prescriptions.updateStatus).toHaveBeenCalledWith('RX001', 'CANCELLED'));
+      expect(api.prescriptions.update).toHaveBeenCalledWith('RX001', { dosage: '500mg', frequency: '3x daily' });
+   });
+
+   test('a server failure is shown and the status call is not made', async () => {
+      api.prescriptions.update.mockRejectedValue(new Error('A cancelled prescription cannot be changed.'));
+      render(<Prescriptions />, { authValue });
+      await screen.findByText('Amoxicillin');
+
+      fireEvent.click(screen.getAllByText('Manage')[0]);
+      fireEvent.change(screen.getByDisplayValue('Active'), { target: { value: 'false' } });
+      fireEvent.click(screen.getByText('Update Prescription'));
+
+      expect(await screen.findByText(/cannot be changed/)).toBeInTheDocument();
+      expect(api.prescriptions.updateStatus).not.toHaveBeenCalled();
    });
 });

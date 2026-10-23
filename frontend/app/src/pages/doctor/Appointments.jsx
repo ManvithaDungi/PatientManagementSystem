@@ -7,11 +7,13 @@ import Card from '../../components/common/Card';
 import Badge from '../../components/common/Badge';
 import Button from '../../components/common/Button';
 import Modal from '../../components/common/Modal';
+import { useNavigate } from 'react-router-dom';
 import api from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 
 const Appointments = () => {
     const { user } = useAuth();
+    const navigate = useNavigate();
     const [activeTab, setActiveTab] = useState('upcoming');
     const [viewMode, setViewMode] = useState('calendar'); // 'list', 'calendar' (month), 'day' (scheduler)
     const [appointments, setAppointments] = useState([]);
@@ -43,6 +45,7 @@ const Appointments = () => {
                     time: a.appointmentDate
                         ? new Date(a.appointmentDate).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
                         : '',
+                    patientId: a.patientId,
                     patientName: a.patientName || 'Unknown',
                     type: a.reasonForVisit || 'Consultation',
                     status: a.status || 'PENDING_APPROVAL',
@@ -219,6 +222,12 @@ const Appointments = () => {
                                         }>
                                             {appt.status}
                                         </Badge>
+
+                                        {appt.patientId && (
+                                            <Button variant="outline" className="text-xs py-0.5 px-2" onClick={() => navigate(`/dashboard/doctor/patient/${appt.patientId}`)}>
+                                                View Patient
+                                            </Button>
+                                        )}
 
                                         {activeTab === 'upcoming' && (
                                             <div className="flex space-x-1">

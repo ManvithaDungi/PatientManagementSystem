@@ -112,7 +112,7 @@ export default function Login() {
           navigate(dashboardPath);
         }, 1000);
       } else if (result.status === 'OTP_REQUIRED') {
-        sessionStorage.setItem('2fa_user', JSON.stringify({ email, role: result.user?.role || 'DOCTOR' }));
+        sessionStorage.setItem('2fa_user', JSON.stringify({ email, role: result.user?.role || 'DOCTOR', pendingToken: result.pendingToken || null }));
         setSuccess('OTP sent! Redirecting to verification...');
         setTimeout(() => {
           navigate('/verify-2fa');

@@ -30,7 +30,6 @@ const Sidebar = ({ role, userName, isOpen, setIsOpen, isCollapsed, toggleCollaps
                     { icon: Calendar, label: 'Appointments', path: '/dashboard/doctor/appointments' },
                     { icon: Activity, label: 'Lab Results', path: '/dashboard/doctor/labs' },
                     { icon: Pill, label: 'Prescriptions', path: '/dashboard/doctor/prescriptions' },
-                    { icon: FileText, label: 'Reports', path: '/dashboard/doctor/reports' },
                 ];
             case 'patient':
                 return [

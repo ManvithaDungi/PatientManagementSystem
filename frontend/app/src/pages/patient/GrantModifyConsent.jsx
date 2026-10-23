@@ -421,7 +421,7 @@ const GrantModifyConsent = ({
    onSubmit,
    consentId,        // real consent DB id for revoke (required when mode='modify')
    grantedToId,      // provider userId to grant consent to
-   backendConsentType, // backend consentType (VIEW_RECORDS, LAB_RESULTS, etc.)
+   backendConsentType, // backend consentType (ALL, MEDICAL_RECORDS, LAB_RESULTS, etc.)
    patientHistory = [], // real consent history from parent
 }) => {
    const { user } = useAuth();
@@ -446,7 +446,6 @@ const GrantModifyConsent = ({
    const [showSuccessScreen, setShowSuccessScreen] = useState(false);
    const [isSubmitting, setIsSubmitting] = useState(false);
    const [toast, setToast] = useState(null);
-   const [draftSaved, setDraftSaved] = useState(false);
    const [countdown, setCountdown] = useState(5);
    const [generatedConsentId, setGeneratedConsentId] = useState('');
    const [showHistory, setShowHistory] = useState(false);
@@ -462,7 +461,6 @@ const GrantModifyConsent = ({
    const [withdrawConsentId, setWithdrawConsentId] = useState('');
 
    // Auto-save draft timer
-   const autoSaveRef = useRef(null);
 
    // Initialize with existing selections if modifying
    useEffect(() => {
@@ -483,19 +481,6 @@ const GrantModifyConsent = ({
       setToast({ type, message });
       setTimeout(() => setToast(null), 4000);
    }, []);
-
-   // Auto-save draft every 30 seconds
-   useEffect(() => {
-      autoSaveRef.current = setInterval(() => {
-         if (selectedOptions.length > 0 && !showSuccessScreen) {
-            setDraftSaved(true);
-            showToast('info', 'Draft auto-saved');
-            setTimeout(() => setDraftSaved(false), 2000);
-         }
-      }, 30000);
-
-      return () => clearInterval(autoSaveRef.current);
-   }, [selectedOptions, showSuccessScreen, showToast]);
 
    // Countdown timer for success screen
    useEffect(() => {
@@ -589,12 +574,6 @@ const GrantModifyConsent = ({
       return '';
    };
 
-   // Save draft
-   const handleSaveDraft = () => {
-      showToast('success', 'Draft saved successfully');
-      setDraftSaved(true);
-   };
-
    // Handle review (go to confirmation)
    const handleReview = () => {
       setShowConfirmModal(true);
@@ -617,12 +596,14 @@ const GrantModifyConsent = ({
             expiresAt = customExpirationDate ? new Date(customExpirationDate).toISOString() : null;
          }
 
-         const result = await consentAPI.grantConsent({
-            grantedToId,
-            consentType: backendConsentType,
-            reason: signatureValue || '',
-            expiresAt,
-         });
+         const result = (mode === 'modify' && consentId)
+            ? await consentAPI.updateConsent(consentId, { expiresAt, reason: signatureValue || '' })
+            : await consentAPI.grantConsent({
+               grantedToId,
+               consentType: backendConsentType,
+               reason: signatureValue || '',
+               expiresAt,
+            });
 
          setGeneratedConsentId(String(result.id));
          setIsSubmitting(false);
@@ -652,7 +633,7 @@ const GrantModifyConsent = ({
 
    // Handle cancel with confirmation
    const handleCancel = () => {
-      if (selectedOptions.length > 0 && !draftSaved) {
+      if (selectedOptions.length > 0) {
          if (window.confirm('Are you sure? Your changes will be lost.')) {
             onClose();
          }
@@ -675,7 +656,7 @@ const GrantModifyConsent = ({
    const handleWithdraw = async () => {
       setIsWithdrawing(true);
       try {
-         const result = await consentAPI.revokeConsent(consentId);
+         const result = await consentAPI.revokeConsent(consentId, withdrawReason === 'other' ? withdrawReasonOther : withdrawReason);
          setWithdrawConsentId(String(result?.id || consentId));
          setIsWithdrawing(false);
          setWithdrawStep(3); // Success
@@ -902,26 +883,6 @@ const GrantModifyConsent = ({
                                     <p className="text-sm text-gray-500 dark:text-slate-400">Takes effect within 24-48 hours</p>
                                  </div>
                               </label>
-                              <label
-                                 className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${
-                                    withdrawEffective === 'end-of-month'
-                                       ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                                       : 'border-gray-200 dark:border-slate-700 hover:border-gray-300 dark:hover:border-slate-600'
-                                 }`}
-                              >
-                                 <input
-                                    type="radio"
-                                    name="withdrawEffective"
-                                    value="end-of-month"
-                                    checked={withdrawEffective === 'end-of-month'}
-                                    onChange={(e) => setWithdrawEffective(e.target.value)}
-                                    className="text-blue-600"
-                                 />
-                                 <div>
-                                    <span className="text-gray-800 dark:text-slate-100 font-medium">End of current month</span>
-                                    <p className="text-sm text-gray-500 dark:text-slate-400">Allows time for care coordination transition</p>
-                                 </div>
-                              </label>
                            </div>
                         </div>
 
@@ -978,7 +939,7 @@ const GrantModifyConsent = ({
                               <div className="flex justify-between">
                                  <span className="text-gray-500 dark:text-slate-400">Effective:</span>
                                  <span className="font-medium text-gray-900 dark:text-slate-100">
-                                    {withdrawEffective === 'immediate' ? 'Within 24-48 hours' : 'End of current month'}
+                                    Immediately
                                  </span>
                               </div>
                               <div className="flex justify-between">
@@ -1371,11 +1332,6 @@ const GrantModifyConsent = ({
                      <span className="font-medium text-gray-700 dark:text-slate-200">
                         {selectedOptions.length} of {formData.availableOptions.length} selected
                      </span>
-                     {draftSaved && (
-                        <span className="text-green-600 dark:text-green-400 flex items-center gap-1">
-                           <Check className="w-4 h-4" /> Draft saved
-                        </span>
-                     )}
                   </div>
 
                   <div className="space-y-3">
@@ -1657,12 +1613,6 @@ const GrantModifyConsent = ({
                      onClick={handleCancel}
                   >
                      Cancel
-                  </Button>
-                  <Button 
-                     variant="outline"
-                     onClick={handleSaveDraft}
-                  >
-                     Save as Draft
                   </Button>
                   {mode === 'modify' && (
                      <Button 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Filter, MoreVertical, Edit } from 'lucide-react';
+import { Search, Filter } from 'lucide-react';
 import Card from '../../../components/common/Card';
 import Badge from '../../../components/common/Badge';
 import Button from '../../../components/common/Button';
@@ -10,29 +10,100 @@ const UserManagement = () => {
     const [users, setUsers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
+    const [loadError, setLoadError] = useState(null);
+    const [actionMessage, setActionMessage] = useState(null); // { type, text }
+    const [busyId, setBusyId] = useState(null);
+
+    // Staff invites
+    const [showInvite, setShowInvite] = useState(false);
+    const [inviteEmail, setInviteEmail] = useState('');
+    const [inviteRole, setInviteRole] = useState('DOCTOR');
+    const [inviting, setInviting] = useState(false);
+    const [inviteMessage, setInviteMessage] = useState(null); // { type, text }
+    const [invites, setInvites] = useState([]);
 
     useEffect(() => {
         fetchUsers();
+        fetchInvites();
     }, []);
+
+    const fetchInvites = async () => {
+        try {
+            setInvites(await api.invites.list());
+        } catch (err) {
+            console.error('Failed to load invites', err);
+        }
+    };
+
+    const handleInvite = async (e) => {
+        e.preventDefault();
+        setInviting(true);
+        setInviteMessage(null);
+        try {
+            await api.invites.create(inviteEmail.trim(), inviteRole);
+            setInviteMessage({ type: 'success', text: `Invitation sent to ${inviteEmail.trim()}.` });
+            setInviteEmail('');
+            fetchInvites();
+        } catch (err) {
+            setInviteMessage({ type: 'error', text: err.message || 'Could not send the invitation.' });
+        } finally {
+            setInviting(false);
+        }
+    };
+
+    const handleRevoke = async (id) => {
+        try {
+            await api.invites.revoke(id);
+            fetchInvites();
+        } catch (err) {
+            setInviteMessage({ type: 'error', text: err.message || 'Could not revoke the invitation.' });
+        }
+    };
 
     const fetchUsers = async () => {
         try {
             setLoading(true);
+            setLoadError(null);
             const data = await api.admin.getAllStaff();
             setUsers(data);
         } catch (err) {
-            console.log('Using mock users');
-            // Use mock data on error — fields match StaffDTO: userId, email, role
-            setUsers([
-                { userId: 1, email: 'doctor1@securehealth.com', role: 'DOCTOR' },
-                { userId: 2, email: 'nurse1@securehealth.com', role: 'NURSE' },
-                { userId: 3, email: 'lab1@securehealth.com', role: 'LAB_TECHNICIAN' },
-                { userId: 4, email: 'admin@securehealth.com', role: 'ADMIN' },
-            ]);
+            console.error('Failed to load staff', err);
+            setUsers([]);
+            setLoadError('Unable to load staff members. Please try again.');
         } finally {
             setLoading(false);
         }
     };
+
+    const runAction = async (userId, successText, action) => {
+        setBusyId(userId);
+        setActionMessage(null);
+        try {
+            await action();
+            setActionMessage({ type: 'success', text: successText });
+            await fetchUsers();
+        } catch (err) {
+            setActionMessage({ type: 'error', text: err.message || 'The action could not be completed.' });
+        } finally {
+            setBusyId(null);
+        }
+    };
+
+    const handleRoleChange = (user, newRole) => {
+        if (!newRole || newRole === user.role) return;
+        if (!window.confirm(`Change ${user.email} from ${user.role} to ${newRole}?`)) return;
+        runAction(user.userId, `Role updated for ${user.email}.`, () => api.admin.updateStaffRole(user.userId, newRole));
+    };
+
+    const handleDisable = (user) => {
+        if (!window.confirm(`Disable ${user.email}? They will be signed out and unable to log in.`)) return;
+        runAction(user.userId, `${user.email} was disabled.`, () => api.admin.deleteStaff(user.userId));
+    };
+
+    const handleEnable = (user) =>
+        runAction(user.userId, `${user.email} was enabled.`, () => api.admin.enableStaff(user.userId));
+
+    const formatLastLogin = (value) => (value ? new Date(value).toLocaleString() : 'Never');
 
     const filteredUsers = users.filter(user =>
         user.email?.toLowerCase().includes(searchTerm.toLowerCase())
@@ -49,14 +120,8 @@ const UserManagement = () => {
         }
     };
 
-    const getStatusColor = (status) => {
-        switch (status) {
-            case 'Active': return 'text-admin-success bg-admin-success/10';
-            case 'Away': return 'text-admin-warning bg-admin-warning/10';
-            case 'Inactive': return 'text-slate-500 bg-slate-100 dark:bg-slate-700';
-            default: return 'text-slate-500';
-        }
-    };
+    const getStatusColor = (enabled) =>
+        enabled ? 'text-admin-success bg-admin-success/10' : 'text-slate-500 bg-slate-100 dark:bg-slate-700';
 
     return (
         <Card className="border-t-4 border-t-admin-secondary">
@@ -80,8 +145,74 @@ const UserManagement = () => {
                     <Button variant="outline" className="flex items-center gap-2">
                         <Filter size={16} /> Filter
                     </Button>
+                    <Button onClick={() => setShowInvite((v) => !v)}>
+                        {showInvite ? 'Close' : 'Invite staff'}
+                    </Button>
                 </div>
             </div>
+
+            {showInvite && (
+                <div className="p-6 border-b border-gray-100 dark:border-slate-700 space-y-4">
+                    <form onSubmit={handleInvite} className="flex flex-col sm:flex-row gap-3">
+                        <input
+                            type="email"
+                            required
+                            placeholder="staff.member@hospital.org"
+                            value={inviteEmail}
+                            onChange={(e) => setInviteEmail(e.target.value)}
+                            className="flex-1 px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm dark:bg-slate-800 dark:text-white"
+                        />
+                        <select
+                            value={inviteRole}
+                            onChange={(e) => setInviteRole(e.target.value)}
+                            className="px-3 py-2 border border-slate-200 dark:border-slate-700 rounded-lg text-sm dark:bg-slate-800 dark:text-white"
+                        >
+                            <option value="DOCTOR">Doctor</option>
+                            <option value="NURSE">Nurse</option>
+                            <option value="LAB_TECHNICIAN">Lab Technician</option>
+                            <option value="ADMIN">Administrator</option>
+                        </select>
+                        <Button type="submit" disabled={inviting}>
+                            {inviting ? 'Sending...' : 'Send invitation'}
+                        </Button>
+                    </form>
+
+                    {inviteMessage && (
+                        <p className={`text-sm ${inviteMessage.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>
+                            {inviteMessage.text}
+                        </p>
+                    )}
+
+                    {invites.length > 0 && (
+                        <div>
+                            <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-200 mb-2">Pending invitations</h3>
+                            <ul className="space-y-1">
+                                {invites.map((inv) => (
+                                    <li key={inv.id} className="flex items-center justify-between text-sm text-slate-600 dark:text-slate-300">
+                                        <span>
+                                            {inv.email} — {inv.role} ({inv.status.toLowerCase()}, expires {new Date(inv.expiresAt).toLocaleString()})
+                                        </span>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleRevoke(inv.id)}
+                                            className="text-xs text-red-600 hover:underline"
+                                        >
+                                            Revoke
+                                        </button>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {actionMessage && (
+                <p role={actionMessage.type === 'error' ? 'alert' : 'status'}
+                    className={`px-6 pt-4 text-sm ${actionMessage.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>
+                    {actionMessage.text}
+                </p>
+            )}
 
             {loading && (
                 <div className="p-6 text-center text-slate-500">
@@ -91,7 +222,11 @@ const UserManagement = () => {
 
 
 
-            {!loading && filteredUsers.length === 0 && (
+            {!loading && loadError && (
+                <div className="p-6 text-center text-red-600 text-sm">{loadError}</div>
+            )}
+
+            {!loading && !loadError && filteredUsers.length === 0 && (
                 <div className="p-6 text-center text-slate-500">
                     {searchTerm ? 'No users found matching your search.' : 'No users found.'}
                 </div>
@@ -124,21 +259,46 @@ const UserManagement = () => {
                                     <Badge variant={getRoleBadgeVariant(user.role)} label={user.role || 'PATIENT'} />
                                 </TableCell>
                                 <TableCell>
-                                    <span className={`text-xs font-medium px-2 py-1 rounded-full ${getStatusColor('Active')}`}>
-                                        Active
+                                    <span className={`text-xs font-medium px-2 py-1 rounded-full ${getStatusColor(user.enabled !== false)}`}>
+                                        {user.enabled !== false ? 'Active' : 'Disabled'}
                                     </span>
                                 </TableCell>
                                 <TableCell>
-                                    <span className="text-sm text-slate-500">Just now</span>
+                                    <span className="text-sm text-slate-500">{formatLastLogin(user.lastLoginAt)}</span>
                                 </TableCell>
                                 <TableCell align="right">
                                     <div className="flex items-center gap-2 justify-end">
-                                        <button className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors" title="Edit">
-                                            <Edit size={16} className="text-slate-500" />
-                                        </button>
-                                        <button className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors" title="More options">
-                                            <MoreVertical size={16} className="text-slate-500" />
-                                        </button>
+                                        <select
+                                            aria-label={`Role for ${user.email}`}
+                                            value={user.role}
+                                            disabled={busyId === user.userId}
+                                            onChange={(e) => handleRoleChange(user, e.target.value)}
+                                            className="px-2 py-1 border border-slate-200 dark:border-slate-700 rounded-lg text-xs dark:bg-slate-800 dark:text-white"
+                                        >
+                                            <option value="ADMIN">Administrator</option>
+                                            <option value="DOCTOR">Doctor</option>
+                                            <option value="NURSE">Nurse</option>
+                                            <option value="LAB_TECHNICIAN">Lab Technician</option>
+                                        </select>
+                                        {user.enabled !== false ? (
+                                            <button
+                                                type="button"
+                                                disabled={busyId === user.userId}
+                                                onClick={() => handleDisable(user)}
+                                                className="text-xs text-red-600 hover:underline"
+                                            >
+                                                Disable
+                                            </button>
+                                        ) : (
+                                            <button
+                                                type="button"
+                                                disabled={busyId === user.userId}
+                                                onClick={() => handleEnable(user)}
+                                                className="text-xs text-green-700 hover:underline"
+                                            >
+                                                Enable
+                                            </button>
+                                        )}
                                     </div>
                                 </TableCell>
                             </TableRow>

@@ -1,30 +1,10 @@
 // API Service - Centralized API calls for the Patient Management System
+import { getAccessToken, setAccessToken, clearAccessToken } from './tokenStore';
+
 const API_BASE_URL = process.env.REACT_APP_API_URL || '';
 
-const getAccessToken = () => {
-   const userDataStr = localStorage.getItem('secure_health_user');
-   if (!userDataStr) return null;
-   try {
-      return JSON.parse(userDataStr).accessToken || null;
-   } catch (e) {
-      console.error('Failed to parse secure_health_user from localStorage', e);
-      return null;
-   }
-};
-
-const setAccessToken = (accessToken) => {
-   const userDataStr = localStorage.getItem('secure_health_user');
-   if (!userDataStr) return;
-   try {
-      const userSession = JSON.parse(userDataStr);
-      userSession.accessToken = accessToken;
-      localStorage.setItem('secure_health_user', JSON.stringify(userSession));
-   } catch (e) {
-      console.error('Failed to update stored access token', e);
-   }
-};
-
 const forceLogout = () => {
+   clearAccessToken();
    localStorage.removeItem('secure_health_user');
    window.location.href = '/login';
 };
@@ -101,10 +81,20 @@ const apiCall = async (endpoint, options = {}, isRetry = false) => {
          }
 
          const error = await response.json().catch(() => ({ message: 'Request failed' }));
-         throw new Error(error.message || `HTTP error! status: ${response.status}`);
+         const apiError = new Error(error.message || `HTTP error! status: ${response.status}`);
+         apiError.status = response.status;
+         throw apiError;
       }
 
-      return await response.json();
+      // Some endpoints answer with plain text or an empty body; never fail a successful call on parsing.
+      if (typeof response.text !== 'function') return await response.json();
+      const raw = await response.text();
+      if (!raw) return null;
+      try {
+         return JSON.parse(raw);
+      } catch (parseError) {
+         return raw;
+      }
    } catch (error) {
       console.error(`API Error [${endpoint}]:`, error);
       throw error;
@@ -128,8 +118,7 @@ const apiCallBlob = async (endpoint, options = {}) => {
 
    if (!response.ok) {
       if (response.status === 401) {
-         localStorage.removeItem('secure_health_user');
-         window.location.href = '/login';
+         forceLogout();
       }
       const error = await response.json().catch(() => ({ message: 'Request failed' }));
       throw new Error(error.message || `HTTP error! status: ${response.status}`);
@@ -171,6 +160,13 @@ export const authAPI = {
    getCurrentUser: async () => {
       return apiCall('/auth/me', {
          method: 'GET',
+      });
+   },
+
+   // Turn on two-factor authentication for the signed-in account
+   enableTwoFactor: async () => {
+      return apiCall('/auth/enable-2fa', {
+         method: 'POST',
       });
    },
 };
@@ -286,6 +282,13 @@ export const appointmentAPI = {
       });
    },
 
+   // Mark a scheduled appointment whose time has passed as a no-show (DOCTOR only)
+   markNoShow: async (id) => {
+      return apiCall(`/appointments/${id}/no-show`, {
+         method: 'PUT',
+      });
+   },
+
    // Mark an appointment as completed (DOCTOR only)
    complete: async (id) => {
       return apiCall(`/appointments/${id}/complete`, {
@@ -319,7 +322,7 @@ export const appointmentAPI = {
    reject: async (id, reason = '') => {
       return apiCall(`/appointments/${id}/reject`, {
          method: 'PUT',
-         body: JSON.stringify(reason),
+         body: JSON.stringify({ reason }),
       });
    },
 
@@ -386,6 +389,13 @@ export const prescriptionAPI = {
       });
    },
 
+   // Everything the signed-in doctor has prescribed, in one request (DOCTOR only)
+   getMine: async () => {
+      return apiCall('/prescriptions/mine', {
+         method: 'GET',
+      });
+   },
+
    // Get prescription by ID
    getById: async (id) => {
       return apiCall(`/prescriptions/${id}`, {
@@ -406,6 +416,14 @@ export const prescriptionAPI = {
       return apiCall(`/prescriptions/${id}`, {
          method: 'PUT',
          body: JSON.stringify(prescriptionData),
+      });
+   },
+
+   // Change status: ACTIVE -> COMPLETED | CANCELLED (final)
+   updateStatus: async (id, status) => {
+      return apiCall(`/prescriptions/${id}/status`, {
+         method: 'PUT',
+         body: JSON.stringify({ status }),
       });
    },
 
@@ -637,17 +655,59 @@ export const adminAPI = {
       });
    },
 
-   // Get all audit logs (Admin only)
-   getAuditLogs: async () => {
-      return apiCall('/admin/audit-logs', {
+   // One page of audit logs, newest first (Admin only).
+   // params: { page, size (max 200), email, from, to } — from/to are ISO date-times.
+   // Resolves to { content, page, size, totalElements, totalPages }.
+   getAuditLogs: async (params = {}) => {
+      const query = new URLSearchParams();
+      Object.entries(params).forEach(([key, value]) => {
+         if (value !== undefined && value !== null && value !== '') {
+            query.set(key, value);
+         }
+      });
+      const qs = query.toString();
+      return apiCall(`/admin/audit-logs${qs ? `?${qs}` : ''}`, {
          method: 'GET',
       });
    },
 
-   // Get audit logs for a specific user
-   getAuditLogsByEmail: async (email) => {
-      return apiCall(`/admin/audit-logs/${encodeURIComponent(email)}`, {
+   // One page of audit logs for a specific user
+   getAuditLogsByEmail: async (email, params = {}) => {
+      const query = new URLSearchParams(
+         Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== '')
+      ).toString();
+      return apiCall(`/admin/audit-logs/${encodeURIComponent(email)}${query ? `?${query}` : ''}`, {
          method: 'GET',
+      });
+   },
+
+   // Audit-event counts per action for a timeframe such as '24h', '7d', '30d' (Admin only).
+   // Resolves to { totalEvents, securityEvents, successfulLogins, failedLogins, byAction }.
+   getUserActivity: async (timeframe = '24h') => {
+      return apiCall(`/admin/user-activity?timeframe=${encodeURIComponent(timeframe)}`, {
+         method: 'GET',
+      });
+   },
+
+   // Security-relevant audit entries (failed logins, lockouts, token theft...), newest first.
+   getSecurityEvents: async ({ hours = 24, limit = 50 } = {}) => {
+      return apiCall(`/admin/security-events?hours=${hours}&limit=${limit}`, {
+         method: 'GET',
+      });
+   },
+
+   // Live database / Redis / JVM status of the backend (Admin only).
+   getSystemHealth: async () => {
+      return apiCall('/admin/system-health', {
+         method: 'GET',
+      });
+   },
+
+   // Assign a patient's treating doctor / nurse (login user ids; null clears)
+   updateCareTeam: async (patientId, assignedDoctorId, assignedNurseId) => {
+      return apiCall(`/admin/patients/${patientId}/care-team`, {
+         method: 'PUT',
+         body: JSON.stringify({ assignedDoctorId, assignedNurseId }),
       });
    },
 
@@ -676,6 +736,13 @@ export const adminAPI = {
    deleteStaff: async (userId) => {
       return apiCall(`/admin/staff/${userId}`, {
          method: 'DELETE',
+      });
+   },
+
+   // Re-enable a previously disabled staff account
+   enableStaff: async (userId) => {
+      return apiCall(`/admin/staff/${userId}/enable`, {
+         method: 'PUT',
       });
    },
 
@@ -708,12 +775,63 @@ export const consentAPI = {
       });
    },
 
-   // Revoke an existing consent by ID
-   revokeConsent: async (id) => {
+   // Revoke an existing consent by ID, optionally recording why
+   revokeConsent: async (id, reason = '') => {
       return apiCall(`/consent/${id}/revoke`, {
          method: 'PUT',
+         body: JSON.stringify({ reason }),
       });
    },
+
+   // Change the expiry and/or note of an active consent
+   updateConsent: async (id, payload) => {
+      return apiCall(`/consent/${id}`, {
+         method: 'PUT',
+         body: JSON.stringify(payload),
+      });
+   },
+
+   // Who has read the patient's clinical data (from the audit trail)
+   getAccessLog: async () => {
+      return apiCall('/consent/access-log', { method: 'GET' });
+   },
+};
+
+// ============================================
+// NOTIFICATION APIs
+// ============================================
+
+export const notificationAPI = {
+   getMine: async () => apiCall('/notifications', { method: 'GET' }),
+   markRead: async (id) => apiCall(`/notifications/${id}/read`, { method: 'PUT' }),
+   markAllRead: async () => apiCall('/notifications/read-all', { method: 'PUT' }),
+};
+
+// ============================================
+// STAFF INVITE APIs
+// ============================================
+
+export const inviteAPI = {
+   // Public: check an invite link's token before showing the form
+   validate: async (token) => {
+      return apiCall(`/auth/invite/validate?token=${encodeURIComponent(token)}`, { method: 'GET' });
+   },
+
+   // Public: invitee sets a password and activates the account
+   accept: async ({ token, password, fullName, specialty, contactNumber }) => {
+      return apiCall('/auth/invite/accept', {
+         method: 'POST',
+         body: JSON.stringify({ token, password, fullName, specialty, contactNumber }),
+      });
+   },
+
+   // Admin only
+   list: async () => apiCall('/admin/staff/invites', { method: 'GET' }),
+   create: async (email, role) => apiCall('/admin/staff/invites', {
+      method: 'POST',
+      body: JSON.stringify({ email, role }),
+   }),
+   revoke: async (id) => apiCall(`/admin/staff/invites/${id}`, { method: 'DELETE' }),
 };
 
 // ============================================
@@ -774,6 +892,8 @@ const api = {
    consent: consentAPI,
    catalog: catalogAPI,
    files: filesAPI,
+   invites: inviteAPI,
+   notifications: notificationAPI,
 };
 
 export default api;

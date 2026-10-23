@@ -1,5 +1,5 @@
 services:
-  # 1. The Database
+  # 1. The database. Published on loopback only; the backend reaches it over the internal network.
   postgres_db:
     image: postgres:16-alpine
     container_name: secure_health_db
@@ -8,91 +8,157 @@ services:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: ${DB_NAME}
-      TZ : Asia/Kolkata
+      TZ: Asia/Kolkata
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data_clean:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
     networks:
       - health_net
 
-  # 2. Adminer (Database GUI)
+  # 2. Adminer (database GUI) - development only: start with `docker compose --profile dev up`.
   adminer:
     image: adminer
     container_name: secure_health_adminer
-    restart: always
+    restart: unless-stopped
+    profiles: ["dev"]
     ports:
-      - "8082:8080"
+      - "127.0.0.1:8082:8080"
+    depends_on:
+      postgres_db:
+        condition: service_healthy
     networks:
       - health_net
 
-  # 3. Redis (Active Defense)
+  # 3. Redis (JWT blacklist, idle markers, rate limiting). Password required; loopback only.
   redis_cache:
     image: redis:alpine
     container_name: secure_health_redis
     restart: always
+    command: ["sh", "-c", "exec redis-server --save 60 1 --loglevel warning --requirepass \"$$REDIS_PASSWORD\""]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
     ports:
-      - "6379:6379"
-    command: redis-server --save 60 1 --loglevel warning
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
     networks:
       - health_net
 
-  # 4. JAVA BACKEND (The Service you were missing!)
+  # 4. Java backend
   backend_api:
-    build: ./backend # Points to your backend folder
+    build: ./backend
     container_name: secure_health_api
     restart: always
     ports:
-      - "8081:8080" # Maps localhost:8081 -> Container:8080
+      # Loopback only: browsers reach the API through the frontend proxy, and
+      # the backend trusts X-Forwarded-For from private (proxy) addresses.
+      - "127.0.0.1:8081:8080"
     env_file:
       - .env
     environment:
-      # Connect to Postgres container
       JAVA_TOOL_OPTIONS: "-Dtomcat.util.http.parser.HttpParser.requestTargetAllow=_"
-      SPRING_DATASOURCE_URL: jdbc:postgresql://secure_health_db:5432/${DB_NAME}?stringtype=unspecified
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres_db:5432/${DB_NAME}?stringtype=unspecified
       SPRING_DATASOURCE_USERNAME: ${DB_USER}
       SPRING_DATASOURCE_PASSWORD: ${DB_PASSWORD}
-      # Connect to Redis container
       SPRING_DATA_REDIS_HOST: redis_cache
       SPRING_DATA_REDIS_PORT: 6379
-      TZ : Asia/Kolkata
+      SPRING_DATA_REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
+      TZ: Asia/Kolkata
 
+      # Secrets: the backend refuses to start if any of these is missing or is a
+      # previously-published default. See .env.example for how to generate them.
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set}
+      APP_ENCRYPTION_KEY: ${APP_ENCRYPTION_KEY:?APP_ENCRYPTION_KEY must be set}
+      # First-run administrator (optional; only used when no ADMIN exists yet)
+      APP_ADMIN_EMAIL: ${APP_ADMIN_EMAIL:-}
+      APP_ADMIN_PASSWORD: ${APP_ADMIN_PASSWORD:-}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000}
 
-      # For sending otp on mail
+      # Persistent locations (backed by the volumes below)
+      UPLOAD_DIR: /app/uploads
+      BACKUP_DIR: /app/backups
+
+      # For sending OTP / reset / invite mail
       MAIL_HOST: ${MAIL_HOST}
       MAIL_PORT: ${MAIL_PORT}
       MAIL_USERNAME: ${MAIL_USERNAME}
       MAIL_PASSWORD: ${MAIL_PASSWORD}
-
+    volumes:
+      - upload_data:/app/uploads
+      - backup_data:/app/backups
     depends_on:
-      - postgres_db
-      - redis_cache
+      postgres_db:
+        condition: service_healthy
+      redis_cache:
+        condition: service_healthy
+    healthcheck:
+      # /actuator/health answers without Redis (see README: Redis is required for sign-in, not for health).
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/actuator/health/liveness | grep -q UP"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
     networks:
-      health_net: # ← change from "- health_net" to this
+      health_net:
         aliases:
           - secure-health-api
+
+  # 5. Frontend (React bundle served by nginx, proxies /api to backend_api)
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        REACT_APP_API_URL: /api
+    container_name: secure_health_frontend
+    restart: always
+    ports:
+      - "3000:80"
+    depends_on:
+      backend_api:
+        condition: service_healthy
+    networks:
+      - health_net
 
   prometheus:
     image: prom/prometheus
     container_name: secure_health_prometheus
     restart: always
     ports:
-      - "9090:9090"
+      - "127.0.0.1:9090:9090"
     volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
     networks:
       - health_net
     depends_on:
-      - backend_api
+      backend_api:
+        condition: service_healthy
 
   grafana:
     image: grafana/grafana
     container_name: secure_health_grafana
     restart: always
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:?GRAFANA_ADMIN_USER must be set}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD must be set}
+      GF_USERS_ALLOW_SIGN_UP: "false"
     ports:
-      - "3001:3000"
+      - "127.0.0.1:3001:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
     networks:
       - health_net
     depends_on:
@@ -103,7 +169,8 @@ networks:
     driver: bridge
 
 volumes:
-  postgres_data:
   postgres_data_clean:
   redis_data:
-
+  upload_data:
+  backup_data:
+  grafana_data:

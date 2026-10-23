@@ -61,7 +61,7 @@ const PatientDetail = () => {
                         bloodGroup: 'N/A',
                         room: 'N/A',
                         bed: 'N/A',
-                        status: 'stable',
+                        status: 'unknown',
                         allergies: [],
                         medicalHistory: found.medicalHistory || '',
                         careInstructions: found.medicalHistory ? [found.medicalHistory] : ['No care instructions on file.'],
@@ -132,10 +132,10 @@ const PatientDetail = () => {
                         <div className="flex justify-between items-start mb-4">
                             <div>
                                 <h1 className="text-3xl font-bold text-gray-900 dark:text-white">{patientDetails.name}</h1>
-                                <p className="text-gray-500 text-lg">Room {patientDetails.room}-{patientDetails.bed}</p>
+                                <p className="text-gray-500 text-lg">Room/bed: not recorded</p>
                             </div>
                             <div className="text-right">
-                                <Badge type={patientDetails.status === 'critical' ? 'red' : patientDetails.status === 'monitor' ? 'yellow' : 'green'} size="lg">
+                                <Badge type={patientDetails.status === 'critical' ? 'red' : patientDetails.status === 'monitor' ? 'yellow' : patientDetails.status === 'stable' ? 'green' : 'gray'} size="lg">
                                     {patientDetails.status.toUpperCase()}
                                 </Badge>
                                 <p className="text-xs text-gray-400 mt-1">ID: #{patientDetails.id}</p>

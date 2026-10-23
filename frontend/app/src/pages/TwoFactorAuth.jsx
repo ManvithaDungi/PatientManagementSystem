@@ -147,7 +147,7 @@ export default function TwoFactorAuth() {
     setError('');
 
     try {
-      const result = await verifyOtp(user?.email, code);
+      const result = await verifyOtp(user?.email, code, user?.pendingToken);
 
       if (result.success) {
         setSuccess('Verification successful! Redirecting to your dashboard...');
@@ -237,7 +237,7 @@ export default function TwoFactorAuth() {
     setCountdown(RESEND_COOLDOWN_SECONDS);
     
     try {
-      await resendOtp(user?.email);
+      await resendOtp(user?.email, user?.pendingToken);
       setSuccess('A new verification code has been sent!');
       setTimeout(() => setSuccess(''), 3000);
     } catch (err) {

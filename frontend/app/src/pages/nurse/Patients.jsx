@@ -45,10 +45,10 @@ const Patients = () => {
                         gender: p.gender || 'N/A',
                         room: 'N/A',
                         bed: 'N/A',
-                        diagnosis: p.medicalHistory || 'Observation',
+                        diagnosis: p.medicalHistory || 'No history recorded',
                         vitalsStatus: 'unknown',
                         lastVitals: 'Not recorded',
-                        status: 'stable',
+                        status: 'unknown',
                     })));
                 } else {
                     setPatients([]);
@@ -162,7 +162,7 @@ const Patients = () => {
                                             <div className="text-xs text-gray-500">{patient.age} {patient.age !== 'N/A' && 'yrs,'} {patient.gender}</div>
                                         </div>
                                     </TableCell>
-                                    <TableCell>{patient.room}-{patient.bed}</TableCell>
+                                    <TableCell>Not recorded</TableCell>
                                     <TableCell>{patient.diagnosis}</TableCell>
                                     <TableCell>
                                         <div className="flex items-center gap-2">

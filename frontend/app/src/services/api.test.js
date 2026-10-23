@@ -60,4 +60,21 @@ describe('API Service', () => {
          );
       });
    });
+   describe('response parsing', () => {
+      test('plain-text and empty success bodies do not throw', async () => {
+         global.fetch.mockResolvedValueOnce({ ok: true, text: async () => 'Logged out successfully' });
+         await expect(authAPI.logout()).resolves.toBe('Logged out successfully');
+
+         global.fetch.mockResolvedValueOnce({ ok: true, text: async () => '' });
+         await expect(authAPI.logout()).resolves.toBeNull();
+      });
+
+      test('JSON bodies are still parsed and HTTP errors carry the status', async () => {
+         global.fetch.mockResolvedValueOnce({ ok: true, text: async () => '{"a":1}' });
+         await expect(patientAPI.getMe()).resolves.toEqual({ a: 1 });
+
+         global.fetch.mockResolvedValueOnce({ ok: false, status: 403, json: async () => ({ message: 'nope' }) });
+         await expect(patientAPI.getById(9)).rejects.toMatchObject({ message: 'nope', status: 403 });
+      });
+   });
 });

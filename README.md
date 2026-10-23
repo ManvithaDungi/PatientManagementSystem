@@ -309,17 +309,20 @@ npm start
 # Runs on http://localhost:3000
 ```
 
-## Sample Credentials
+## Demo Data (development only)
 
-After seeding, use these to test:
+No password is documented or stored in this repository. To get demo accounts (all `@example.test`):
 
-| Role | Email | Password |
-|------|-------|----------|
-| Patient | patient1@hospital.com | TempPass123! |
-| Doctor | doctor1@hospital.com | DoctorPass123! |
-| Nurse | nurse1@hospital.com | NursePass123! |
-| Lab Tech | lab1@hospital.com | LabPass123! |
-| Admin | admin@hospital.com | AdminPass123! |
+```bash
+# 1. Start the backend with the dev profile and let it create the accounts
+SPRING_PROFILES_ACTIVE=dev APP_DEV_SEED_ENABLED=true APP_DEV_SEED_PASSWORD='<choose a strong passphrase>'
+#    (if APP_DEV_SEED_PASSWORD is omitted a random password is generated and logged once)
+
+# 2. or load db/seed_users.sql yourself:  psql "$DATABASE_URL" -v pw_hash='<argon2 hash>' -f db/seed_users.sql
+```
+
+Accounts: `admin@`, `doctor1@`, `doctor2@`, `nurse1@`, `lab1@`, `patient1@`, `patient2@` `example.test`.
+Never enable this against a real database.
 
 ---
 
@@ -819,9 +822,15 @@ Response (200 OK):
 
 ## Docker Compose (Development)
 ```bash
-docker-compose up -d
-# Starts: PostgreSQL, Redis, Backend API, Frontend, Adminer
+cp .env.example .env        # then fill in every value (no defaults for secrets)
+docker compose up -d --build
+# Starts: PostgreSQL, Redis, Backend API, Frontend (nginx), Prometheus, Grafana
+docker compose --profile dev up -d   # additionally starts Adminer (development only)
 ```
+
+PostgreSQL, Redis, Adminer, Prometheus and Grafana are published on `127.0.0.1` only; only the frontend (port 3000) is
+reachable from other machines. Redis requires `REDIS_PASSWORD`, Grafana requires `GRAFANA_ADMIN_USER` /
+`GRAFANA_ADMIN_PASSWORD`. Uploaded files and database backups live in the named volumes `upload_data` and `backup_data`.
 
 ## Docker Build (Production)
 ```bash
@@ -856,9 +865,14 @@ MAIL_PORT=587
 MAIL_USERNAME=your_email@gmail.com
 MAIL_PASSWORD=app_specific_password
 
-# Redis
+# Redis (password is required by docker-compose)
 REDIS_HOST=redis
 REDIS_PORT=6379
+REDIS_PASSWORD=<generate: openssl rand -base64 24>
+
+# Grafana
+GRAFANA_ADMIN_USER=<name>
+GRAFANA_ADMIN_PASSWORD=<generate: openssl rand -base64 24>
 
 # Backups
 BACKUP_ENABLED=true
@@ -867,12 +881,28 @@ BACKUP_RETENTION=7
 ```
 
 ## CI/CD Pipeline
-GitHub Actions automatically:
-1. Builds backend (Maven)
-2. Runs backend tests
-3. Builds frontend (npm)
-4. Runs frontend tests
-5. (Optional) Deploys to staging
+`.github/workflows/ci.yml` (on every push / pull request to `main`):
+1. Backend: `./mvnw -B verify` (unit + integration tests, including the Testcontainers test that runs all Flyway
+   migrations on PostgreSQL 16 and boots Hibernate with `ddl-auto=validate`)
+2. Frontend: `npm ci`, tests, production build (warnings are errors)
+3. Docker: validates `docker-compose.yml` and builds both images
+
+`.github/workflows/deployment.yml` deploys over SSH **only after CI succeeded on `main`**. Required repository/environment
+secrets: `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY` (optional `DEPLOY_PATH`). Third-party actions are pinned to commit SHAs.
+
+## Operations
+
+- **Redis is required for sign-in (fail-closed).** Redis holds the JWT blacklist, the idle-session markers and the login/OTP
+  rate limits. If it is unreachable, sign-in and every authenticated request fail with an error rather than skipping those
+  checks. `/actuator/health` (and `/actuator/health/liveness`, `/readiness`) deliberately do **not** depend on Redis, so the
+  process still reports as alive; Redis status is shown to administrators at `GET /api/admin/system-health`.
+- **Backups:** `BackupService` runs `pg_dump` nightly, encrypts the dump with AES-256-GCM (the application encryption key) and
+  deletes the plaintext. A failed run shows up as `DEGRADED` in `/actuator/health` (component `backup`) and in the metrics
+  `calyx.backup.failures.total` / `calyx.backup.last.success.timestamp.seconds`. Decrypt with `AesGcmFiles.decrypt`, then `pg_restore`.
+- **Security headers:** nginx sends a strict Content-Security-Policy, `X-Frame-Options`, `nosniff`, a Referrer/Permissions policy
+  and (only when the request arrived over TLS) HSTS.
+- **Passwords:** Argon2id with the OWASP minimum (m=19 MiB, t=2, p=1); older hashes are upgraded automatically at the next sign-in.
+- **E-mail addresses are case-insensitive** (stored lower-case; `V5__NormalizeEmails` reports, never merges, existing duplicates).
 
 ---
 
@@ -926,17 +956,9 @@ npm run test:unit
 **Fix:** Complete integration testing of admin endpoints
 **Timeline:** v1.1
 
-### Issue 2: Lab File Upload Format Mismatch
-**Status:** Medium Priority  
-**Impact:** Lab technicians can't upload results  
-**Details:** Backend expects JSON; frontend sends FormData  
-**Fix:** Update backend to accept multipart/form-data  
-**Timeline:** v1.0.1 (patch)
-
-### Issue 3: No Refresh Token Rotation
-**Status:** Low Priority  
-**Impact:** Refresh tokens never invalidated  
-**Fix:** Implement refresh token rotation on every use  
+### Issue 2: Care-team assignment has no dedicated patient workflow
+**Status:** Low Priority
+**Impact:** An administrator assigns each patient's doctor and nurse in *Admin Console -> Care Teams*; patients cannot request a change.
 **Timeline:** v1.1
 
 ## Planned Improvements

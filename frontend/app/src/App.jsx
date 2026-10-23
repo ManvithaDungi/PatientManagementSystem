@@ -7,6 +7,7 @@ import CreateAccount from './pages/createAccount.jsx';
 import TwoFactorAuth from './pages/TwoFactorAuth.jsx';
 import ForgotPassword from './pages/ForgotPassword.jsx';
 import ResetPassword from './pages/ResetPassword.jsx';
+import AcceptInvite from './pages/AcceptInvite.jsx';
 import Unauthorized from './pages/Unauthorized.jsx';
 
 import DashboardLayout from './layouts/DashboardLayout.jsx';
@@ -15,10 +16,8 @@ import PatientDetail from './pages/doctor/PatientDetail.jsx';
 import Patients from './pages/doctor/Patients.jsx';
 import DoctorAppointments from './pages/doctor/Appointments.jsx';
 
-import DoctorMessages from './pages/doctor/Messages.jsx';
 import DoctorLabResults from './pages/doctor/LabResults.jsx';
 import DoctorPrescriptions from './pages/doctor/Prescriptions.jsx';
-import DoctorReports from './pages/doctor/Reports.jsx';
 import DoctorProfile from './pages/doctor/Profile.jsx';
 import PatientDashboard from './pages/patient/Dashboard.jsx';
 import PatientAppointments from './pages/patient/Appointments.jsx';
@@ -58,6 +57,7 @@ function App() {
       <Route path="/verify-2fa" element={<TwoFactorAuth />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/reset-password" element={<ResetPassword />} />
+      <Route path="/accept-invite" element={<AcceptInvite />} />
       <Route path="/unauthorized" element={<Unauthorized />} />
 
       {/* Doctor Dashboard */}
@@ -71,10 +71,8 @@ function App() {
         <Route path="patients" element={<Patients />} />
         <Route path="patient/:id" element={<PatientDetail />} />
         <Route path="appointments" element={<DoctorAppointments />} />
-        <Route path="messages" element={<DoctorMessages />} />
         <Route path="labs" element={<DoctorLabResults />} />
         <Route path="prescriptions" element={<DoctorPrescriptions />} />
-        <Route path="reports" element={<DoctorReports />} />
         <Route path="profile" element={<DoctorProfile />} />
       </Route>
 

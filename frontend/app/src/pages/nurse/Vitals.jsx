@@ -572,7 +572,10 @@ const NurseVitals = () => {
             heartRate: Number(vitalsForm.heartRate),
             temperature: Number(tempF.toFixed(1)),
             respiratoryRate: Number(vitalsForm.respiratoryRate),
-            oxygenSaturation: Number(vitalsForm.oxygenSaturation)
+            oxygenSaturation: Number(vitalsForm.oxygenSaturation),
+            painLevel: Number(vitalsForm.painLevel),
+            notes: vitalsNotes ? vitalsNotes : undefined,
+            temperatureRoute,
          };
 
          // Call backend API to save vital signs
@@ -604,7 +607,10 @@ const NurseVitals = () => {
                ...prev,
                vitals: {
                   ...prev.vitals,
-                  patient: { id: patientId, name: 'Selected Patient' },
+                  patient: {
+                     id: patientId,
+                     name: overview.assignedPatients?.find((p) => String(p.id) === String(patientId))?.name || `Patient #${patientId}`,
+                  },
                   current: {
                      bp: { systolic: Number(vitalsForm.systolic), diastolic: Number(vitalsForm.diastolic) },
                      heartRate: Number(vitalsForm.heartRate),

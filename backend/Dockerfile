@@ -1,26 +1,21 @@
-# STAGE 1: Build the JAR file
-# We use a Maven image to compile the code
+# STAGE 1: build the JAR
 FROM maven:3.9.6-eclipse-temurin-21 AS build
 WORKDIR /app
 
-# Copy the dependency file first (for better caching)
-COPY Backend/pom.xml .
-# Download dependencies (this step is cached if pom.xml doesn't change)
-RUN mvn dependency:go-offline
+# Resolve dependencies first so this layer is cached until pom.xml changes
+COPY pom.xml .
+RUN mvn -B dependency:go-offline
 
-# Copy the rest of your source code
-COPY Backend/src ./src
+COPY src ./src
+RUN mvn -B clean package -DskipTests
 
-# Build the app (Skip tests to speed up the first build)
-RUN mvn clean package -DskipTests
-
-# STAGE 2: Run the App
-# We use a lightweight JRE image just to run the compiled code
+# STAGE 2: runtime (pg_dump is required by BackupService)
 FROM eclipse-temurin:21-jre-alpine
+RUN apk add --no-cache postgresql16-client \
+    && addgroup -S app && adduser -S app -G app
 WORKDIR /app
-
-# Copy the built JAR from the 'build' stage
 COPY --from=build /app/target/*.jar app.jar
+RUN mkdir -p /app/uploads /app/backups /app/logs && chown -R app:app /app
+USER app
 
-# Run the application
 ENTRYPOINT ["java", "-jar", "app.jar"]

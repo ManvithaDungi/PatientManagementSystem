@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { User, Mail, Lock, Calendar, MapPin, FileText, Stethoscope, Briefcase } from 'lucide-react';
+import { User, Mail, Lock, Calendar, MapPin } from 'lucide-react';
 
 export default function CreateAccount() {
-  const [role, setRole] = useState('PATIENT');
+  // Public self-registration only creates patient accounts. Doctors, nurses,
+  // lab technicians and admins are onboarded through an invite link from an admin.
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -15,10 +16,6 @@ export default function CreateAccount() {
   // Patient Specific
   const [dob, setDob] = useState('');
   const [address, setAddress] = useState('');
-
-  // Doctor Specific
-  const [licenseNumber, setLicenseNumber] = useState('');
-  const [specialization, setSpecialization] = useState('');
 
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -48,28 +45,19 @@ export default function CreateAccount() {
       return;
     }
 
-    // Role Specific Validation
-    if (role === 'PATIENT') {
-      if (!dob) {
-        setError('Date of Birth is required for patients');
-        return;
-      }
-    } else if (role === 'DOCTOR') {
-      if (!licenseNumber) {
-        setError('License Number is required for doctors');
-        return;
-      }
+    if (!dob) {
+      setError('Date of Birth is required');
+      return;
     }
 
     setLoading(true);
     try {
-      // Construct payload matching schema requirements (using snake_case for backend)
+      // Payload matches the backend RegistrationRequest (snake_case); the server
+      // assigns the PATIENT role itself.
       const userData = {
-        role,
         full_name: fullName,
-        ...(role === 'PATIENT' && { date_of_birth: dob, address }),
-        ...(role === 'DOCTOR' && { license_number: licenseNumber, specialization }),
-        // Add other roles if needed, default allows generic creation
+        date_of_birth: dob,
+        address,
       };
 
       const result = await signup(email, password, userData);
@@ -163,46 +151,10 @@ export default function CreateAccount() {
 
                 <form onSubmit={handleSignUp} className="space-y-4">
 
-                  {/* Role Selection */}
-                  <div className="grid grid-cols-2 gap-3 p-1 bg-gray-100 dark:bg-slate-700/50 rounded-lg">
-                    <button
-                      type="button"
-                      onClick={() => setRole('PATIENT')}
-                      className={`py-2 px-4 rounded-md text-xs font-semibold transition-all ${role === 'PATIENT'
-                        ? 'bg-white dark:bg-slate-600 text-blue-600 dark:text-blue-400 shadow-sm'
-                        : 'text-gray-600 dark:text-slate-400 hover:text-gray-900 dark:hover:text-slate-200'
-                        }`}
-                    >
-                      Patient
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setRole('DOCTOR')}
-                      className={`py-2 px-4 rounded-md text-xs font-semibold transition-all ${role === 'DOCTOR'
-                        ? 'bg-white dark:bg-slate-600 text-blue-600 dark:text-blue-400 shadow-sm'
-                        : 'text-gray-600 dark:text-slate-400 hover:text-gray-900 dark:hover:text-slate-200'
-                        }`}
-                    >
-                      Doctor / Staff
-                    </button>
-                  </div>
-
-                  {/* Additional Role Select for Staff (if Doctor tab selected) */}
-                  {role !== 'PATIENT' && (
-                    <div className="space-y-1">
-                      <label className="text-xs font-semibold text-gray-700 dark:text-slate-200">Staff Role</label>
-                      <select
-                        value={role}
-                        onChange={(e) => setRole(e.target.value)}
-                        className="w-full border border-gray-300 dark:border-slate-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 outline-none"
-                      >
-                        <option value="DOCTOR">Doctor</option>
-                        <option value="NURSE">Nurse</option>
-                        <option value="LAB_TECHNICIAN">Lab Technician</option>
-                        <option value="ADMIN">Administrator</option>
-                      </select>
-                    </div>
-                  )}
+                  <p className="text-xs text-gray-500 dark:text-slate-400 bg-blue-50 dark:bg-slate-700/50 rounded-lg p-3">
+                    This form creates a patient account. Hospital staff receive an
+                    invitation link by email from an administrator.
+                  </p>
 
                   {/* Common Fields */}
                   <div className="space-y-3">
@@ -240,9 +192,8 @@ export default function CreateAccount() {
                       </div>
                     </div>
 
-                    {/* Conditional Patient Fields */}
-                    {role === 'PATIENT' && (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 animate-fade-in">
+                    {/* Patient Fields */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 animate-fade-in">
                         <div className="space-y-1">
                           <label className="text-xs font-semibold text-gray-700 dark:text-slate-200">Date of Birth</label>
                           <div className="relative">
@@ -274,61 +225,6 @@ export default function CreateAccount() {
                           </div>
                         </div>
                       </div>
-                    )}
-
-                    {/* Conditional Doctor Fields */}
-                    {role === 'DOCTOR' && (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 animate-fade-in">
-                        <div className="space-y-1">
-                          <label className="text-xs font-semibold text-gray-700 dark:text-slate-200">License Number</label>
-                          <div className="relative">
-                            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                              <FileText className="h-4 w-4 text-gray-400" />
-                            </div>
-                            <input
-                              type="text"
-                              required
-                              className="w-full border border-gray-300 dark:border-slate-600 rounded-lg pl-9 pr-3 py-2 text-sm bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 outline-none"
-                              placeholder="LIC-12345"
-                              value={licenseNumber}
-                              onChange={(e) => setLicenseNumber(e.target.value)}
-                            />
-                          </div>
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-xs font-semibold text-gray-700 dark:text-slate-200">Specialization</label>
-                          <div className="relative">
-                            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                              <Stethoscope className="h-4 w-4 text-gray-400" />
-                            </div>
-                            <input
-                              type="text"
-                              className="w-full border border-gray-300 dark:border-slate-600 rounded-lg pl-9 pr-3 py-2 text-sm bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 outline-none"
-                              placeholder="Cardiology"
-                              value={specialization}
-                              onChange={(e) => setSpecialization(e.target.value)}
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Other Role Fields (Optional placeholders) */}
-                    {(role === 'NURSE' || role === 'EXT_TECH') && (
-                      <div className="space-y-1 animate-fade-in">
-                        <label className="text-xs font-semibold text-gray-700 dark:text-slate-200">Department / Unit</label>
-                        <div className="relative">
-                          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                            <Briefcase className="h-4 w-4 text-gray-400" />
-                          </div>
-                          <input
-                            type="text"
-                            className="w-full border border-gray-300 dark:border-slate-600 rounded-lg pl-9 pr-3 py-2 text-sm bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 outline-none"
-                            placeholder="e.g. ICU, Lab A"
-                          />
-                        </div>
-                      </div>
-                    )}
 
                     <div className="space-y-1">
                       <label className="text-xs font-semibold text-gray-700 dark:text-slate-200">Password</label>
